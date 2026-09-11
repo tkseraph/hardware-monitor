@@ -28,7 +28,10 @@ pub enum QueryError {
     #[allow(dead_code)]
     EndBeforeStart,
     #[allow(dead_code)]
-    TooManyPoints { requested: usize, max: usize },
+    TooManyPoints {
+        requested: usize,
+        max: usize,
+    },
 }
 
 /// Metrics we actually record. Anything else is rejected rather than

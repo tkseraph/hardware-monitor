@@ -36,7 +36,10 @@ impl HistoryDb {
     pub fn new(db_path: PathBuf) -> SqlResult<Self> {
         let conn = Connection::open(&db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
-        let db = Self { conn, path: Some(db_path) };
+        let db = Self {
+            conn,
+            path: Some(db_path),
+        };
         db.init_schema()?;
         Ok(db)
     }
@@ -72,7 +75,15 @@ impl HistoryDb {
 
     /// Insert with an injectable budget for deterministic tests.
     #[cfg(test)]
-    pub fn insert_sample_with_budget(&self, metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64, budget_bytes: i64) -> SqlResult<()> {
+    pub fn insert_sample_with_budget(
+        &self,
+        metric_id: &str,
+        object_id: &str,
+        value: f64,
+        unit: &str,
+        timestamp: i64,
+        budget_bytes: i64,
+    ) -> SqlResult<()> {
         if self.over_budget_with(budget_bytes) {
             return Err(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
@@ -137,7 +148,14 @@ impl HistoryDb {
     /// Single-row insert. Used by tests and the budget/late-sample paths; the
     /// production sampler writes whole snapshots via insert_samples_batch.
     #[allow(dead_code)]
-    pub fn insert_sample_at(&self, metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64) -> SqlResult<()> {
+    pub fn insert_sample_at(
+        &self,
+        metric_id: &str,
+        object_id: &str,
+        value: f64,
+        unit: &str,
+        timestamp: i64,
+    ) -> SqlResult<()> {
         // R1a disk-budget stop-loss: refuse new rows when over budget rather
         // than growing the file unboundedly. Existing data is untouched.
         if self.over_budget() {
@@ -157,16 +175,30 @@ impl HistoryDb {
     /// with a reused prepared statement. Either the whole batch lands or none
     /// does — a mid-loop failure can no longer leave half a snapshot persisted.
     /// `rows` is (metric_id, object_id, value, unit); all share `timestamp`.
-    pub fn insert_samples_batch(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)]) -> SqlResult<()> {
+    pub fn insert_samples_batch(
+        &self,
+        timestamp: i64,
+        rows: &[(&str, &str, f64, &str)],
+    ) -> SqlResult<()> {
         self.insert_samples_batch_inner(timestamp, rows, DB_BUDGET_BYTES)
     }
 
     #[cfg(test)]
-    pub fn insert_samples_batch_with_budget(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)], budget_bytes: i64) -> SqlResult<()> {
+    pub fn insert_samples_batch_with_budget(
+        &self,
+        timestamp: i64,
+        rows: &[(&str, &str, f64, &str)],
+        budget_bytes: i64,
+    ) -> SqlResult<()> {
         self.insert_samples_batch_inner(timestamp, rows, budget_bytes)
     }
 
-    fn insert_samples_batch_inner(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)], budget_bytes: i64) -> SqlResult<()> {
+    fn insert_samples_batch_inner(
+        &self,
+        timestamp: i64,
+        rows: &[(&str, &str, f64, &str)],
+        budget_bytes: i64,
+    ) -> SqlResult<()> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -343,7 +375,14 @@ impl HistoryDb {
     /// raw for the last hour, 10s buckets to 24h, 60s buckets beyond.
     /// Points are returned as (timestamp, value); buckets use bucket_start
     /// and their avg_value. Never fabricates points for gaps.
-    pub fn query_range(&self, metric_id: &str, object_id: &str, start: i64, end: i64, max_points: usize) -> SqlResult<Vec<(i64, f64)>> {
+    pub fn query_range(
+        &self,
+        metric_id: &str,
+        object_id: &str,
+        start: i64,
+        end: i64,
+        max_points: usize,
+    ) -> SqlResult<Vec<(i64, f64)>> {
         self.query_range_at(metric_id, object_id, start, end, max_points, now_secs())
     }
 
@@ -356,10 +395,19 @@ impl HistoryDb {
     ///   - 60s buckets whose window [bucket_start, bucket_start+60) intersects the range
     ///   - 10s buckets whose window intersects the range
     ///   - raw rows (the full range — they fill blind spots the buckets miss)
+    ///
     /// Results are merged by timestamp and de-duplicated, finer tier winning,
     /// so a sample present both as a raw row and inside a bucket is reported
     /// once. No points are fabricated for gaps.
-    pub fn query_range_at(&self, metric_id: &str, object_id: &str, start: i64, end: i64, max_points: usize, now: i64) -> SqlResult<Vec<(i64, f64)>> {
+    pub fn query_range_at(
+        &self,
+        metric_id: &str,
+        object_id: &str,
+        start: i64,
+        end: i64,
+        max_points: usize,
+        now: i64,
+    ) -> SqlResult<Vec<(i64, f64)>> {
         let raw_boundary = now - RAW_TTL_SECS;
         let b10_boundary = now - BUCKET_10S_TTL_SECS;
 
@@ -387,7 +435,7 @@ impl HistoryDb {
                 "SELECT bucket_start, avg_value FROM metric_buckets
                  WHERE granularity_secs = 60 AND metric_id = ?1 AND object_id = ?2
                    AND bucket_start + 60 > ?3 AND bucket_start < ?4
-                 ORDER BY bucket_start ASC"
+                 ORDER BY bucket_start ASC",
             )?;
             let rows = stmt.query_map((metric_id, object_id, start, seg_end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
@@ -406,7 +454,7 @@ impl HistoryDb {
                 "SELECT bucket_start, avg_value FROM metric_buckets
                  WHERE granularity_secs = 10 AND metric_id = ?1 AND object_id = ?2
                    AND bucket_start + 10 > ?3 AND bucket_start < ?4
-                 ORDER BY bucket_start ASC"
+                 ORDER BY bucket_start ASC",
             )?;
             let rows = stmt.query_map((metric_id, object_id, seg_start, seg_end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
@@ -424,7 +472,7 @@ impl HistoryDb {
                 "SELECT timestamp, value FROM metric_samples
                  WHERE metric_id = ?1 AND object_id = ?2
                    AND timestamp >= ?3 AND timestamp < ?4
-                 ORDER BY timestamp ASC"
+                 ORDER BY timestamp ASC",
             )?;
             let rows = stmt.query_map((metric_id, object_id, start, end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
@@ -438,7 +486,7 @@ impl HistoryDb {
 
         // Downsample to max_points by uniform stride if we exceeded the cap.
         if out.len() > max_points {
-            let stride = (out.len() + max_points - 1) / max_points;
+            let stride = out.len().div_ceil(max_points);
             out = out.into_iter().step_by(stride).collect();
         }
 
@@ -546,7 +594,11 @@ pub fn record_snapshot_batch(timestamp: i64, rows: &[(&str, &str, f64, &str)]) -
                 Ok(())
             }
             Err(e) => {
-                let h = if db.over_budget() { HistoryHealth::OverBudget } else { HistoryHealth::WriteError };
+                let h = if db.over_budget() {
+                    HistoryHealth::OverBudget
+                } else {
+                    HistoryHealth::WriteError
+                };
                 set_health(h);
                 Err(e)
             }
@@ -570,7 +622,13 @@ pub fn aggregate_and_prune() -> SqlResult<AggregateReport> {
     }
 }
 
-pub fn query_range(metric_id: &str, object_id: &str, start: i64, end: i64, max_points: usize) -> SqlResult<Vec<(i64, f64)>> {
+pub fn query_range(
+    metric_id: &str,
+    object_id: &str,
+    start: i64,
+    end: i64,
+    max_points: usize,
+) -> SqlResult<Vec<(i64, f64)>> {
     if let Some(ref db) = *DB.lock().unwrap() {
         db.query_range(metric_id, object_id, start, end, max_points)
     } else {

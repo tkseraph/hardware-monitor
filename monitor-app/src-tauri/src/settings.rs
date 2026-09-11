@@ -48,10 +48,16 @@ impl Settings {
             return Err(format!("unsupported settings version {}", self.version));
         }
         if !(500..=10_000).contains(&self.foreground_interval_ms) {
-            return Err(format!("foreground_interval_ms {} out of range 500-10000", self.foreground_interval_ms));
+            return Err(format!(
+                "foreground_interval_ms {} out of range 500-10000",
+                self.foreground_interval_ms
+            ));
         }
         if !(1000..=30_000).contains(&self.background_interval_ms) {
-            return Err(format!("background_interval_ms {} out of range 1000-30000", self.background_interval_ms));
+            return Err(format!(
+                "background_interval_ms {} out of range 1000-30000",
+                self.background_interval_ms
+            ));
         }
         if !VALID_LANGUAGES.contains(&self.language.as_str()) {
             return Err(format!("unsupported language '{}'", self.language));
@@ -94,7 +100,10 @@ pub struct LoadOutcome {
 
 impl SettingsStore {
     pub fn new(dir: PathBuf) -> Self {
-        Self { path: dir.join("settings.json"), last_error: Mutex::new(None) }
+        Self {
+            path: dir.join("settings.json"),
+            last_error: Mutex::new(None),
+        }
     }
 
     /// Load with validation + migration (A13).
@@ -107,21 +116,36 @@ impl SettingsStore {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return LoadOutcome { settings: Settings::default(), error: None };
+                return LoadOutcome {
+                    settings: Settings::default(),
+                    error: None,
+                };
             }
             Err(e) => {
-                return LoadOutcome { settings: Settings::default(), error: Some(format!("read: {}", e)) };
+                return LoadOutcome {
+                    settings: Settings::default(),
+                    error: Some(format!("read: {}", e)),
+                };
             }
         };
         let parsed = match serde_json::from_str::<Settings>(&text) {
             Ok(s) => s,
             Err(e) => {
-                return LoadOutcome { settings: Settings::default(), error: Some(format!("parse: {}", e)) };
+                return LoadOutcome {
+                    settings: Settings::default(),
+                    error: Some(format!("parse: {}", e)),
+                };
             }
         };
         match parsed.migrated() {
-            Ok(s) => LoadOutcome { settings: s, error: None },
-            Err(e) => LoadOutcome { settings: Settings::default(), error: Some(e) },
+            Ok(s) => LoadOutcome {
+                settings: s,
+                error: None,
+            },
+            Err(e) => LoadOutcome {
+                settings: Settings::default(),
+                error: Some(e),
+            },
         }
     }
 
@@ -143,7 +167,9 @@ impl SettingsStore {
     /// over the target (A13: no shared temp name, no silent partial write).
     pub fn save(&self, settings: &Settings) -> Result<(), String> {
         settings.validate()?;
-        let tmp = self.path.with_extension(format!("json.tmp.{}", std::process::id()));
+        let tmp = self
+            .path
+            .with_extension(format!("json.tmp.{}", std::process::id()));
         let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
         // fsync the temp file before rename so a power loss cannot leave the
@@ -196,8 +222,10 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_interval() {
-        let mut s = Settings::default();
-        s.foreground_interval_ms = 10;
+        let mut s = Settings {
+            foreground_interval_ms: 10,
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
         s.foreground_interval_ms = 100_000;
         assert!(s.validate().is_err());
@@ -210,11 +238,14 @@ mod tests {
 
     #[test]
     fn save_then_load_roundtrips() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = SettingsStore::new(dir.clone());
-        let mut s = Settings::default();
-        s.foreground_interval_ms = 2000;
+        let s = Settings {
+            foreground_interval_ms: 2000,
+            ..Default::default()
+        };
         store.save(&s).unwrap();
         let loaded = store.load();
         assert_eq!(loaded.foreground_interval_ms, 2000);
@@ -223,7 +254,8 @@ mod tests {
 
     #[test]
     fn corrupt_file_falls_back_to_defaults() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-corrupt-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-corrupt-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("settings.json"), "{ not json").unwrap();
         let store = SettingsStore::new(dir.clone());
@@ -242,60 +274,89 @@ mod tests {
 
     #[test]
     fn absent_file_is_defaults_without_error() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-absent-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-absent-{}", std::process::id()));
         let store = SettingsStore::new(dir.clone());
         let o = store.load_outcome();
-        assert!(o.error.is_none(), "absent file is a first run, not an error");
+        assert!(
+            o.error.is_none(),
+            "absent file is a first run, not an error"
+        );
         assert_eq!(o.settings.foreground_interval_ms, 1000);
     }
 
     #[test]
     fn future_version_is_rejected_not_loaded() {
         // A13 repro: version=999 must NOT be loaded as-is.
-        let dir = std::env::temp_dir().join(format!("monitor-settings-futv-{}", std::process::id()));
-        let o = write_and_load(&dir, r#"{"version":999,"foreground_interval_ms":1000,"background_interval_ms":3000,"launch_at_login":false,"language":"system"}"#);
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-futv-{}", std::process::id()));
+        let o = write_and_load(
+            &dir,
+            r#"{"version":999,"foreground_interval_ms":1000,"background_interval_ms":3000,"launch_at_login":false,"language":"system"}"#,
+        );
         assert!(o.error.is_some(), "future version rejected");
-        assert_eq!(o.settings.version, SETTINGS_VERSION, "fell back to defaults");
+        assert_eq!(
+            o.settings.version, SETTINGS_VERSION,
+            "fell back to defaults"
+        );
     }
 
     #[test]
     fn zero_intervals_rejected_not_loaded() {
         // A13 repro: 0 intervals were previously returned by load().
-        let dir = std::env::temp_dir().join(format!("monitor-settings-zero-{}", std::process::id()));
-        let o = write_and_load(&dir, r#"{"version":1,"foreground_interval_ms":0,"background_interval_ms":0,"launch_at_login":false,"language":"system"}"#);
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-zero-{}", std::process::id()));
+        let o = write_and_load(
+            &dir,
+            r#"{"version":1,"foreground_interval_ms":0,"background_interval_ms":0,"launch_at_login":false,"language":"system"}"#,
+        );
         assert!(o.error.is_some());
         assert_eq!(o.settings.foreground_interval_ms, 1000);
     }
 
     #[test]
     fn invalid_language_rejected() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-lang-{}", std::process::id()));
-        let o = write_and_load(&dir, r#"{"version":1,"foreground_interval_ms":1000,"background_interval_ms":3000,"launch_at_login":false,"language":"klingon"}"#);
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-lang-{}", std::process::id()));
+        let o = write_and_load(
+            &dir,
+            r#"{"version":1,"foreground_interval_ms":1000,"background_interval_ms":3000,"launch_at_login":false,"language":"klingon"}"#,
+        );
         assert!(o.error.is_some());
         assert_eq!(o.settings.language, "system");
     }
 
     #[test]
     fn bad_file_is_preserved_not_overwritten() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-keep-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-keep-{}", std::process::id()));
         let original = r#"{"version":999,"foreground_interval_ms":0}"#;
         let o = write_and_load(&dir, original);
         assert!(o.error.is_some());
         // The on-disk file must be untouched so the user can inspect/recover it.
         let on_disk = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-        assert_eq!(on_disk, original, "bad file preserved, not silently overwritten");
+        assert_eq!(
+            on_disk, original,
+            "bad file preserved, not silently overwritten"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn save_rejects_invalid_without_touching_disk() {
-        let dir = std::env::temp_dir().join(format!("monitor-settings-saverej-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-saverej-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = SettingsStore::new(dir.clone());
-        let mut bad = Settings::default();
-        bad.foreground_interval_ms = 1;
+        let bad = Settings {
+            foreground_interval_ms: 1,
+            ..Default::default()
+        };
         assert!(store.save(&bad).is_err());
-        assert!(!dir.join("settings.json").exists(), "invalid save wrote nothing");
+        assert!(
+            !dir.join("settings.json").exists(),
+            "invalid save wrote nothing"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

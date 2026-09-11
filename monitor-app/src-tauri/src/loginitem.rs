@@ -87,6 +87,9 @@ mod tests {
         assert!(validate_bundle_path("/nonexistent/Foo.app").is_err());
         // A path with quotes/backslashes/unicode is fine as an ARGV value — the
         // validation only checks .app suffix + existence, never script safety.
-        assert!(validate_bundle_path("/Applications/My \"Quoted\" App.app").is_err(), "missing but well-formed");
+        assert!(
+            validate_bundle_path("/Applications/My \"Quoted\" App.app").is_err(),
+            "missing but well-formed"
+        );
     }
 }

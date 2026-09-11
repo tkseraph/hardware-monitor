@@ -32,7 +32,7 @@ pub struct CmdOutput {
 impl CmdOutput {
     /// Borrow stdout as a lossy string if the command succeeded and did not
     /// time out; otherwise an Err describing the failure.
-    pub fn into_result(&self) -> Result<String, String> {
+    pub fn to_result(&self) -> Result<String, String> {
         if self.timed_out {
             return Err("command timed out".to_string());
         }
@@ -76,7 +76,9 @@ pub fn run_with_env(
         cmd.env(k, v);
     }
 
-    let mut child: Child = cmd.spawn().map_err(|e| format!("spawn {}: {}", program, e))?;
+    let mut child: Child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn {}: {}", program, e))?;
     let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
 
     // Drain stdout on a helper thread; chunks arrive over a channel so the main

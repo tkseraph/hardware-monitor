@@ -58,7 +58,10 @@ mod tests {
         let real = std::env::temp_dir().join("should-not-be-created-xyz");
         let p = DataPaths::resolve(real.clone()).unwrap();
         assert!(p.root.starts_with(&dir) || p.root == dir.canonicalize().unwrap());
-        assert!(!real.exists(), "real app_data_dir must not be created when MONITOR_DATA_DIR set");
+        assert!(
+            !real.exists(),
+            "real app_data_dir must not be created when MONITOR_DATA_DIR set"
+        );
         assert_eq!(p.db_path().file_name().unwrap(), "monitor.db");
         std::env::remove_var("MONITOR_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);

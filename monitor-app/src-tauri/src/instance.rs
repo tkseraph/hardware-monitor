@@ -88,7 +88,10 @@ mod tests {
         let la = try_acquire(&a).unwrap();
         let lb = try_acquire(&b).unwrap();
         assert!(la.is_acquired());
-        assert!(lb.is_acquired(), "different lock files must not block each other");
+        assert!(
+            lb.is_acquired(),
+            "different lock files must not block each other"
+        );
         let _ = std::fs::remove_file(&a);
         let _ = std::fs::remove_file(&b);
     }

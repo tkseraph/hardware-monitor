@@ -33,7 +33,7 @@ pub fn parse_labeled_number(text: &str, key: &str) -> Option<u64> {
 ///
 /// The block may include the leading `"PerformanceStatistics" = {` prefix
 /// and trailing `}`; we strip the outer braces before splitting entries.
-pub fn parse_ioreg_stat<'a>(block: &'a str, exact_key: &str) -> Option<u64> {
+pub fn parse_ioreg_stat(block: &str, exact_key: &str) -> Option<u64> {
     let start = block.find('{')?;
     let end = block.rfind('}')?;
     let inner = &block[start + 1..end];
@@ -66,24 +66,36 @@ Pages used by compressor: 7000.
 
     #[test]
     fn parses_simple_field() {
-        assert_eq!(parse_labeled_number(MEM_PRESSURE, "Pages active:"), Some(2000));
+        assert_eq!(
+            parse_labeled_number(MEM_PRESSURE, "Pages active:"),
+            Some(2000)
+        );
     }
 
     #[test]
     fn parses_multiword_wired() {
         // F02 regression: old code took nth(2) which is "down:" -> parse fail -> 0.
-        assert_eq!(parse_labeled_number(MEM_PRESSURE, "Pages wired down:"), Some(5000));
+        assert_eq!(
+            parse_labeled_number(MEM_PRESSURE, "Pages wired down:"),
+            Some(5000)
+        );
     }
 
     #[test]
     fn parses_multiword_compressor() {
         // F02 regression: old code took nth(2) which is "by" -> parse fail -> 0.
-        assert_eq!(parse_labeled_number(MEM_PRESSURE, "Pages used by compressor:"), Some(7000));
+        assert_eq!(
+            parse_labeled_number(MEM_PRESSURE, "Pages used by compressor:"),
+            Some(7000)
+        );
     }
 
     #[test]
     fn missing_key_is_none_not_zero() {
-        assert_eq!(parse_labeled_number(MEM_PRESSURE, "Pages nonexistent:"), None);
+        assert_eq!(
+            parse_labeled_number(MEM_PRESSURE, "Pages nonexistent:"),
+            None
+        );
     }
 
     #[test]
@@ -114,7 +126,10 @@ Pages used by compressor: 7000.
 
     #[test]
     fn gpu_utilization() {
-        assert_eq!(parse_ioreg_stat(PERF_STATS, "Device Utilization %"), Some(27));
+        assert_eq!(
+            parse_ioreg_stat(PERF_STATS, "Device Utilization %"),
+            Some(27)
+        );
     }
 
     #[test]

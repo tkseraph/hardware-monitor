@@ -96,9 +96,8 @@ pub struct Sampler {
 
 impl Sampler {
     pub fn new() -> Self {
-        let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
-        );
+        let mut sys =
+            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
         sys.refresh_cpu_usage();
         Self {
             sys,
@@ -112,11 +111,15 @@ impl Sampler {
         if let Some(c) = &self.cpu_static {
             return c.clone();
         }
-        let name = crate::cmd::run("/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"], crate::cmd::DEFAULT_TIMEOUT)
-            .ok()
-            .filter(|o| o.status_success)
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|| "Unknown".to_string());
+        let name = crate::cmd::run(
+            "/usr/sbin/sysctl",
+            &["-n", "machdep.cpu.brand_string"],
+            crate::cmd::DEFAULT_TIMEOUT,
+        )
+        .ok()
+        .filter(|o| o.status_success)
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
         let physical = read_sysctl_u32("hw.physicalcpu").unwrap_or(0);
         let logical = read_sysctl_u32("hw.logicalcpu").unwrap_or(0);
         let c = (name, physical, logical);
@@ -156,16 +159,19 @@ impl Sampler {
         // R7/A10: assign stable anonymous identities so history keys off the
         // device_uid, never the volatile `diskN` address.
         crate::device_id::assign_topology(&mut storage);
-        let disks: Vec<DiskInfo> = storage.iter().map(|d| DiskInfo {
-            device: d.device.clone(),
-            device_uid: d.device_uid.clone().unwrap_or_default(),
-            generation: d.generation,
-            name: d.name.clone(),
-            size_bytes: d.size_bytes,
-            smart_status: d.smart_status.clone(),
-            temperature_celsius: d.temperature_celsius,
-            power_on_hours: d.power_on_hours,
-        }).collect();
+        let disks: Vec<DiskInfo> = storage
+            .iter()
+            .map(|d| DiskInfo {
+                device: d.device.clone(),
+                device_uid: d.device_uid.clone().unwrap_or_default(),
+                generation: d.generation,
+                name: d.name.clone(),
+                size_bytes: d.size_bytes,
+                smart_status: d.smart_status.clone(),
+                temperature_celsius: d.temperature_celsius,
+                power_on_hours: d.power_on_hours,
+            })
+            .collect();
         let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
         let mut disk_throughput = self.sample_disk_throughput(&devices)?;
         // R7/A10: tag each throughput with the disk's anonymous uid so history
@@ -197,7 +203,10 @@ impl Sampler {
     /// computes MB/s as the delta over the real elapsed window since the last
     /// observation. The first call after start/wake establishes the baseline
     /// and reports no rate (warm-up), so no fabricated spike is produced.
-    fn sample_disk_throughput(&mut self, physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {
+    fn sample_disk_throughput(
+        &mut self,
+        physical_devices: &[String],
+    ) -> Result<Vec<DiskThroughput>, String> {
         if physical_devices.is_empty() {
             return Ok(Vec::new());
         }
@@ -227,7 +236,11 @@ impl Sampler {
                     let dt = now.duration_since(prev_at).as_secs_f32();
                     if dt > 0.0 && cur >= prev_mb {
                         let mb_s = ((cur - prev_mb) as f32) / dt;
-                        throughputs.push(DiskThroughput { device: dev.clone(), device_uid: String::new(), mb_per_sec: mb_s });
+                        throughputs.push(DiskThroughput {
+                            device: dev.clone(),
+                            device_uid: String::new(),
+                            mb_per_sec: mb_s,
+                        });
                     }
                     // Counter went backwards (counter reset / disk re-add): drop
                     // the stale baseline; the new value becomes the baseline.
@@ -243,17 +256,28 @@ impl Sampler {
 }
 
 fn read_sysctl_u32(key: &str) -> Option<u32> {
-    crate::cmd::run("/usr/sbin/sysctl", &["-n", key], crate::cmd::DEFAULT_TIMEOUT)
-        .ok()
-        .filter(|o| o.status_success)
-        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+    crate::cmd::run(
+        "/usr/sbin/sysctl",
+        &["-n", key],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )
+    .ok()
+    .filter(|o| o.status_success)
+    .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
 }
 
 fn sample_memory() -> Result<MemoryInfo, String> {
-    let total_bytes = crate::cmd::run("/usr/sbin/sysctl", &["-n", "hw.memsize"], crate::cmd::DEFAULT_TIMEOUT)
-        .map_err(|e| e)?
-        .into_result()
-        .and_then(|s| s.trim().parse::<u64>().map_err(|_| "hw.memsize not a number".to_string()))?;
+    let total_bytes = crate::cmd::run(
+        "/usr/sbin/sysctl",
+        &["-n", "hw.memsize"],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )?
+    .to_result()
+    .and_then(|s| {
+        s.trim()
+            .parse::<u64>()
+            .map_err(|_| "hw.memsize not a number".to_string())
+    })?;
     if total_bytes == 0 {
         return Err("hw.memsize is zero".to_string());
     }
@@ -262,9 +286,8 @@ fn sample_memory() -> Result<MemoryInfo, String> {
         .filter(|&p| p > 0)
         .unwrap_or(16384) as u64;
 
-    let stdout = crate::cmd::run("/usr/bin/memory_pressure", &[], crate::cmd::DEFAULT_TIMEOUT)
-        .map_err(|e| e)?
-        .into_result()?;
+    let stdout = crate::cmd::run("/usr/bin/memory_pressure", &[], crate::cmd::DEFAULT_TIMEOUT)?
+        .to_result()?;
 
     let pages = |key: &str| -> Result<u64, String> {
         crate::parse::parse_labeled_number(&stdout, key)
@@ -292,16 +315,27 @@ fn sample_memory() -> Result<MemoryInfo, String> {
 }
 
 fn sample_gpu() -> Result<GpuInfo, String> {
-    let name = crate::cmd::run("/usr/sbin/system_profiler", &["SPDisplaysDataType", "-json"], crate::cmd::DEFAULT_TIMEOUT)
-        .ok()
-        .and_then(|o| o.into_result().ok())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|j| j["SPDisplaysDataType"][0]["_name"].as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "Unknown".to_string());
+    let name = crate::cmd::run(
+        "/usr/sbin/system_profiler",
+        &["SPDisplaysDataType", "-json"],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )
+    .ok()
+    .and_then(|o| o.to_result().ok())
+    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    .and_then(|j| {
+        j["SPDisplaysDataType"][0]["_name"]
+            .as_str()
+            .map(|s| s.to_string())
+    })
+    .unwrap_or_else(|| "Unknown".to_string());
 
-    let stdout = crate::cmd::run("/usr/sbin/ioreg", &["-l", "-w", "0"], crate::cmd::DEFAULT_TIMEOUT)
-        .map_err(|e| e)?
-        .into_result()?;
+    let stdout = crate::cmd::run(
+        "/usr/sbin/ioreg",
+        &["-l", "-w", "0"],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )?
+    .to_result()?;
 
     let stats_start = stdout
         .find("\"PerformanceStatistics\" = {")
@@ -373,26 +407,47 @@ fn parse_iostat_cumulative_mb(stdout: &str) -> std::collections::HashMap<String,
 pub fn record_snapshot(info: &SystemInfo) {
     let ts = info.observed_at;
     // One row per metric; roughly 3 + cores + disks + disk-temps.
-    let mut rows: Vec<(&str, &str, f64, &str)> =
-        Vec::with_capacity(3 + info.cpu.per_core_usage.len() + info.disk_throughput.len() + info.disks.len());
-    rows.push(("cpu.total_usage", "system", info.cpu.total_usage as f64, "%"));
-    rows.push(("memory.used_percent", "system", info.memory.used_percent as f64, "%"));
+    let mut rows: Vec<(&str, &str, f64, &str)> = Vec::with_capacity(
+        3 + info.cpu.per_core_usage.len() + info.disk_throughput.len() + info.disks.len(),
+    );
+    rows.push((
+        "cpu.total_usage",
+        "system",
+        info.cpu.total_usage as f64,
+        "%",
+    ));
+    rows.push((
+        "memory.used_percent",
+        "system",
+        info.memory.used_percent as f64,
+        "%",
+    ));
     rows.push(("gpu.utilization", "gpu0", info.gpu.utilization as f64, "%"));
     // per-core object ids must outlive the call — build owned strings.
-    let core_ids: Vec<String> = (0..info.cpu.per_core_usage.len()).map(|i| format!("core{}", i)).collect();
+    let core_ids: Vec<String> = (0..info.cpu.per_core_usage.len())
+        .map(|i| format!("core{}", i))
+        .collect();
     for (i, usage) in info.cpu.per_core_usage.iter().enumerate() {
         rows.push(("cpu.per_core", core_ids[i].as_str(), *usage as f64, "%"));
     }
     for disk in &info.disk_throughput {
         // R7/A10: history keyed by anonymous device_uid, falling back to the
         // volatile address only if no uid was assigned (degraded path).
-        let oid = if disk.device_uid.is_empty() { disk.device.as_str() } else { disk.device_uid.as_str() };
+        let oid = if disk.device_uid.is_empty() {
+            disk.device.as_str()
+        } else {
+            disk.device_uid.as_str()
+        };
         rows.push(("disk.throughput", oid, disk.mb_per_sec as f64, "MB/s"));
     }
     // Disk temperature into history (only real readings; absent stays absent).
     for disk in &info.disks {
         if let Some(t) = disk.temperature_celsius {
-            let oid = if disk.device_uid.is_empty() { disk.device.as_str() } else { disk.device_uid.as_str() };
+            let oid = if disk.device_uid.is_empty() {
+                disk.device.as_str()
+            } else {
+                disk.device_uid.as_str()
+            };
             rows.push(("disk.temperature", oid, t as f64, "°C"));
         }
     }

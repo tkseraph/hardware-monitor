@@ -117,7 +117,14 @@ impl ProcessCollector {
                         None => (None, None), // first sight: baseline only
                     };
                     // Update the baseline only on a successful read.
-                    seen.insert(key, IoBaseline { read, write, at: now });
+                    seen.insert(
+                        key,
+                        IoBaseline {
+                            read,
+                            write,
+                            at: now,
+                        },
+                    );
                     (rates.0, rates.1, read, write)
                 }
                 None => {

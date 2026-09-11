@@ -155,7 +155,10 @@ mod tests {
         let mut r = DeviceRegistry::new();
         let (u1, _) = r.assign("disk0", "APPLE SSD", 500_000_000_000, &["disk0s2".into()]);
         let (u2, _) = r.assign("disk4", "APPLE SSD", 500_000_000_000, &["disk4s2".into()]);
-        assert_eq!(u1, u2, "same medium must keep one uid across re-enumeration");
+        assert_eq!(
+            u1, u2,
+            "same medium must keep one uid across re-enumeration"
+        );
     }
 
     #[test]
@@ -163,19 +166,32 @@ mod tests {
         // Hot-plug: disk0 was medium A, now medium B reuses the address.
         let mut r = DeviceRegistry::new();
         let (ua, ga) = r.assign("disk0", "APPLE SSD", 500_000_000_000, &["disk0s2".into()]);
-        let (ub, gb) = r.assign("disk0", "SAMSUNG SSD", 1_000_000_000_000, &["disk0s2".into()]);
+        let (ub, gb) = r.assign(
+            "disk0",
+            "SAMSUNG SSD",
+            1_000_000_000_000,
+            &["disk0s2".into()],
+        );
         assert_ne!(ua, ub, "different medium gets a different uid");
         assert_eq!(gb, 0, "new medium starts at generation 0");
         // Re-seeing medium A elsewhere later reflects the bumped generation.
         let (_ua2, ga2) = r.assign("disk4", "APPLE SSD", 500_000_000_000, &["disk4s2".into()]);
-        assert!(ga2 > ga, "address reuse bumped the previous owner's generation");
+        assert!(
+            ga2 > ga,
+            "address reuse bumped the previous owner's generation"
+        );
     }
 
     #[test]
     fn distinct_media_get_distinct_uids() {
         let mut r = DeviceRegistry::new();
         let (u1, _) = r.assign("disk0", "APPLE SSD", 500_000_000_000, &["disk0s2".into()]);
-        let (u2, _) = r.assign("disk2", "SAMSUNG SSD", 1_000_000_000_000, &["disk2s1".into()]);
+        let (u2, _) = r.assign(
+            "disk2",
+            "SAMSUNG SSD",
+            1_000_000_000_000,
+            &["disk2s1".into()],
+        );
         assert_ne!(u1, u2);
     }
 
@@ -186,6 +202,9 @@ mod tests {
         let pool = medium_fingerprint("SSD", 1000, 2);
         assert_ne!(single, pool);
         // The volatile diskN address must NOT affect the fingerprint.
-        assert_eq!(medium_fingerprint("SSD", 1000, 1), medium_fingerprint("SSD", 1000, 1));
+        assert_eq!(
+            medium_fingerprint("SSD", 1000, 1),
+            medium_fingerprint("SSD", 1000, 1)
+        );
     }
 }

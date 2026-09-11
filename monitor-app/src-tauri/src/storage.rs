@@ -104,12 +104,26 @@ pub fn build_topology() -> Result<Vec<PhysicalDisk>, String> {
 
 /// Full topology including shared multi-disk pools. Live command execution.
 pub fn build_full_topology() -> Result<StorageTopology, String> {
-    let disks_plist = crate::cmd::run("/usr/sbin/diskutil", &["list", "-plist", "physical"], crate::cmd::DEFAULT_TIMEOUT)?
-        .into_result()?;
-    let containers_plist = crate::cmd::run("/usr/sbin/apfs", &["list", "-plist"], crate::cmd::DEFAULT_TIMEOUT)
-        .or_else(|_| crate::cmd::run("/usr/sbin/diskutil", &["apfs", "list", "-plist"], crate::cmd::DEFAULT_TIMEOUT))
-        .ok()
-        .and_then(|o| o.into_result().ok());
+    let disks_plist = crate::cmd::run(
+        "/usr/sbin/diskutil",
+        &["list", "-plist", "physical"],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )?
+    .to_result()?;
+    let containers_plist = crate::cmd::run(
+        "/usr/sbin/apfs",
+        &["list", "-plist"],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )
+    .or_else(|_| {
+        crate::cmd::run(
+            "/usr/sbin/diskutil",
+            &["apfs", "list", "-plist"],
+            crate::cmd::DEFAULT_TIMEOUT,
+        )
+    })
+    .ok()
+    .and_then(|o| o.to_result().ok());
 
     let disks = parse_physical_disks(&disks_plist, true)?;
     let containers: Vec<ContainerInfo> = containers_plist
@@ -128,7 +142,10 @@ pub fn build_full_topology() -> Result<StorageTopology, String> {
 ///   unplugged store), the container is dropped rather than misattributed.
 /// - A container with zero or multiple physical stores is a shared/unbacked
 ///   pool and goes to `shared_containers`, counted once, never per-disk (A09).
-fn assemble_topology(mut disks: Vec<PhysicalDisk>, containers: Vec<ContainerInfo>) -> StorageTopology {
+fn assemble_topology(
+    mut disks: Vec<PhysicalDisk>,
+    containers: Vec<ContainerInfo>,
+) -> StorageTopology {
     let mut shared = Vec::new();
     for container in containers {
         if container.shared_pool || container.physical_stores.len() != 1 {
@@ -142,7 +159,10 @@ fn assemble_topology(mut disks: Vec<PhysicalDisk>, containers: Vec<ContainerInfo
             None => shared.push(container),
         }
     }
-    StorageTopology { disks, shared_containers: shared }
+    StorageTopology {
+        disks,
+        shared_containers: shared,
+    }
 }
 
 /// Strip partition suffix: "disk0s2" → "disk0", "disk10" → "disk10".
@@ -174,7 +194,8 @@ fn parse_physical_disks(plist_xml: &str, fetch_info: bool) -> Result<Vec<Physica
 
     let mut disks = Vec::new();
     for item in array {
-        if let Some(dev_id) = item.as_dictionary()
+        if let Some(dev_id) = item
+            .as_dictionary()
             .and_then(|d| d.get("DeviceIdentifier"))
             .and_then(|v| v.as_string())
         {
@@ -183,11 +204,13 @@ fn parse_physical_disks(plist_xml: &str, fetch_info: bool) -> Result<Vec<Physica
             if base_disk_id(dev_id) != dev_id {
                 continue;
             }
-            let (name, size_bytes, smart_status, temperature_celsius, power_on_hours) = if fetch_info {
-                disk_info(dev_id).unwrap_or_else(|_| (String::new(), 0, String::new(), None, None))
-            } else {
-                (String::new(), 0, String::new(), None, None)
-            };
+            let (name, size_bytes, smart_status, temperature_celsius, power_on_hours) =
+                if fetch_info {
+                    disk_info(dev_id)
+                        .unwrap_or_else(|_| (String::new(), 0, String::new(), None, None))
+                } else {
+                    (String::new(), 0, String::new(), None, None)
+                };
             disks.push(PhysicalDisk {
                 device: dev_id.to_string(),
                 name,
@@ -205,31 +228,50 @@ fn parse_physical_disks(plist_xml: &str, fetch_info: bool) -> Result<Vec<Physica
 }
 
 /// (name, size_bytes, smart_status, temperature_c, power_on_hours)
-fn disk_info(dev_id: &str) -> Result<(String, u64, String, Option<f32>, Option<u64>), String> {
-    let stdout = crate::cmd::run("/usr/sbin/diskutil", &["info", "-plist", dev_id], crate::cmd::DEFAULT_TIMEOUT)?
-        .into_result()?;
-    let plist = plist::from_bytes::<plist::Value>(stdout.as_bytes())
-        .map_err(|e| e.to_string())?;
+type DiskInfoParts = (String, u64, String, Option<f32>, Option<u64>);
+
+fn disk_info(dev_id: &str) -> Result<DiskInfoParts, String> {
+    let stdout = crate::cmd::run(
+        "/usr/sbin/diskutil",
+        &["info", "-plist", dev_id],
+        crate::cmd::DEFAULT_TIMEOUT,
+    )?
+    .to_result()?;
+    let plist = plist::from_bytes::<plist::Value>(stdout.as_bytes()).map_err(|e| e.to_string())?;
     let d = plist.as_dictionary().ok_or("no dict")?;
 
-    let temperature_celsius = d.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
+    let temperature_celsius = d
+        .get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
         .and_then(|v| v.as_dictionary())
         .and_then(|dd| dd.get("TEMPERATURE"))
         .and_then(|v| v.as_unsigned_integer())
         .and_then(|k| {
             let c = k as f32 - 273.15;
-            if (0.0..=150.0).contains(&c) { Some(c) } else { None }
+            if (0.0..=150.0).contains(&c) {
+                Some(c)
+            } else {
+                None
+            }
         });
 
-    let power_on_hours = d.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
+    let power_on_hours = d
+        .get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
         .and_then(|v| v.as_dictionary())
         .and_then(|dd| dd.get("POWER_ON_HOURS_0"))
         .and_then(|v| v.as_unsigned_integer());
 
     Ok((
-        d.get("MediaName").and_then(|v| v.as_string()).unwrap_or("").to_string(),
-        d.get("TotalSize").and_then(|v| v.as_unsigned_integer()).unwrap_or(0),
-        d.get("SMARTStatus").and_then(|v| v.as_string()).unwrap_or("").to_string(),
+        d.get("MediaName")
+            .and_then(|v| v.as_string())
+            .unwrap_or("")
+            .to_string(),
+        d.get("TotalSize")
+            .and_then(|v| v.as_unsigned_integer())
+            .unwrap_or(0),
+        d.get("SMARTStatus")
+            .and_then(|v| v.as_string())
+            .unwrap_or("")
+            .to_string(),
         temperature_celsius,
         power_on_hours,
     ))
@@ -242,8 +284,8 @@ fn disk_info(dev_id: &str) -> Result<(String, u64, String, Option<f32>, Option<u
 /// roles accept both the modern `Roles` array and the legacy single `Role`
 /// string, so multi-role volumes are not collapsed.
 fn parse_apfs_containers(plist_xml: &str) -> Result<Vec<ContainerInfo>, String> {
-    let plist = plist::from_bytes::<plist::Value>(plist_xml.as_bytes())
-        .map_err(|e| e.to_string())?;
+    let plist =
+        plist::from_bytes::<plist::Value>(plist_xml.as_bytes()).map_err(|e| e.to_string())?;
     let containers_arr = plist
         .as_dictionary()
         .and_then(|d| d.get("Containers"))
@@ -252,50 +294,86 @@ fn parse_apfs_containers(plist_xml: &str) -> Result<Vec<ContainerInfo>, String> 
 
     let mut out = Vec::new();
     for c in containers_arr {
-        let cd = match c.as_dictionary() { Some(d) => d, None => continue };
+        let cd = match c.as_dictionary() {
+            Some(d) => d,
+            None => continue,
+        };
 
         // Keep every physical store, in reported order.
-        let physical_stores: Vec<String> = cd.get("PhysicalStores")
+        let physical_stores: Vec<String> = cd
+            .get("PhysicalStores")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|ps| {
-                ps.as_dictionary()
-                    .and_then(|d| d.get("DeviceIdentifier"))
-                    .and_then(|v| v.as_string())
-                    .map(|s| s.to_string())
-            }).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|ps| {
+                        ps.as_dictionary()
+                            .and_then(|d| d.get("DeviceIdentifier"))
+                            .and_then(|v| v.as_string())
+                            .map(|s| s.to_string())
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         let shared_pool = physical_stores.len() > 1;
 
-        let volumes = cd.get("Volumes")
+        let volumes = cd
+            .get("Volumes")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| {
-                let vd = v.as_dictionary()?;
-                let id = vd.get("DeviceIdentifier")?.as_string()?.to_string();
-                // Roles array (modern) takes precedence; fall back to the
-                // legacy single Role string.
-                let roles: Vec<String> = vd.get("Roles")
-                    .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|r| r.as_string().map(|s| s.to_string())).collect())
-                    .or_else(|| vd.get("Role").and_then(|v| v.as_string()).map(|s| vec![s.to_string()]))
-                    .unwrap_or_default();
-                let role = roles.first().cloned().unwrap_or_default();
-                Some(VolumeInfo {
-                    id,
-                    name: vd.get("Name").and_then(|v| v.as_string()).unwrap_or("").to_string(),
-                    role,
-                    roles,
-                    capacity_consumed: vd.get("CapacityInUse").and_then(|v| v.as_unsigned_integer()),
-                })
-            }).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        let vd = v.as_dictionary()?;
+                        let id = vd.get("DeviceIdentifier")?.as_string()?.to_string();
+                        // Roles array (modern) takes precedence; fall back to the
+                        // legacy single Role string.
+                        let roles: Vec<String> = vd
+                            .get("Roles")
+                            .and_then(|v| v.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|r| r.as_string().map(|s| s.to_string()))
+                                    .collect()
+                            })
+                            .or_else(|| {
+                                vd.get("Role")
+                                    .and_then(|v| v.as_string())
+                                    .map(|s| vec![s.to_string()])
+                            })
+                            .unwrap_or_default();
+                        let role = roles.first().cloned().unwrap_or_default();
+                        Some(VolumeInfo {
+                            id,
+                            name: vd
+                                .get("Name")
+                                .and_then(|v| v.as_string())
+                                .unwrap_or("")
+                                .to_string(),
+                            role,
+                            roles,
+                            capacity_consumed: vd
+                                .get("CapacityInUse")
+                                .and_then(|v| v.as_unsigned_integer()),
+                        })
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         out.push(ContainerInfo {
-            container_ref: cd.get("ContainerReference").and_then(|v| v.as_string()).unwrap_or("").to_string(),
+            container_ref: cd
+                .get("ContainerReference")
+                .and_then(|v| v.as_string())
+                .unwrap_or("")
+                .to_string(),
             physical_stores,
             shared_pool,
-            capacity_ceiling: cd.get("CapacityCeiling").and_then(|v| v.as_unsigned_integer()),
+            capacity_ceiling: cd
+                .get("CapacityCeiling")
+                .and_then(|v| v.as_unsigned_integer()),
             capacity_free: cd.get("CapacityFree").and_then(|v| v.as_unsigned_integer()),
-            capacity_in_use: cd.get("CapacityInUse").and_then(|v| v.as_unsigned_integer()),
+            capacity_in_use: cd
+                .get("CapacityInUse")
+                .and_then(|v| v.as_unsigned_integer()),
             volumes,
         });
     }
@@ -317,9 +395,15 @@ mod tests {
     // ---- Anonymized diskutil plist fixtures (no serials/hostnames/paths) ----
 
     fn disk_list_plist(devs: &[&str]) -> String {
-        let items: String = devs.iter().map(|d| format!(
-            "<dict><key>DeviceIdentifier</key><string>{}</string></dict>", d
-        )).collect();
+        let items: String = devs
+            .iter()
+            .map(|d| {
+                format!(
+                    "<dict><key>DeviceIdentifier</key><string>{}</string></dict>",
+                    d
+                )
+            })
+            .collect();
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>AllDisksAndPartitions</key><array>{}</array></dict></plist>"#,
@@ -328,9 +412,15 @@ mod tests {
     }
 
     fn container_xml(store_ids: &[&str], vols: &str, extra: &str) -> String {
-        let stores: String = store_ids.iter().map(|s| format!(
-            "<dict><key>DeviceIdentifier</key><string>{}</string></dict>", s
-        )).collect();
+        let stores: String = store_ids
+            .iter()
+            .map(|s| {
+                format!(
+                    "<dict><key>DeviceIdentifier</key><string>{}</string></dict>",
+                    s
+                )
+            })
+            .collect();
         format!(
             "<dict><key>ContainerReference</key><string>disk1</string>\
              <key>PhysicalStores</key><array>{}</array>\
@@ -357,7 +447,8 @@ mod tests {
                    <key>Name</key><string>System</string>\
                    <key>Roles</key><array><string>System</string></array>\
                    <key>CapacityInUse</key><integer>15000</integer></dict>";
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
+        let containers =
+            parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
         assert_eq!(containers.len(), 1);
         assert!(!containers[0].shared_pool);
         assert_eq!(containers[0].physical_stores, vec!["disk0s2"]);
@@ -372,21 +463,36 @@ mod tests {
         // A09 regression: a container backed by disk0s2 + disk2s1 must NOT be
         // wholly attached to disk0. It becomes a shared pool counted once.
         let disks = parse_physical_disks(&disk_list_plist(&["disk0", "disk2"]), false).unwrap();
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2", "disk2s1"], "", ""))).unwrap();
+        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(
+            &["disk0s2", "disk2s1"],
+            "",
+            "",
+        )))
+        .unwrap();
         assert_eq!(containers[0].physical_stores.len(), 2);
         assert!(containers[0].shared_pool, "two stores => shared pool");
         let topo = assemble_topology(disks, containers);
         assert_eq!(topo.disks.len(), 2);
-        assert!(topo.disks.iter().all(|d| d.containers.is_empty()),
-                "shared pool must not be attributed to any single disk");
+        assert!(
+            topo.disks.iter().all(|d| d.containers.is_empty()),
+            "shared pool must not be attributed to any single disk"
+        );
         assert_eq!(topo.shared_containers.len(), 1, "counted once as a pool");
     }
 
     #[test]
     fn single_disk_multiple_containers() {
         let disks = parse_physical_disks(&disk_list_plist(&["disk0"]), false).unwrap();
-        let c1 = container_xml(&["disk0s2"], "", "<key>ContainerReference</key><string>disk1</string>");
-        let c2 = container_xml(&["disk0s4"], "", "<key>ContainerReference</key><string>disk3</string>");
+        let c1 = container_xml(
+            &["disk0s2"],
+            "",
+            "<key>ContainerReference</key><string>disk1</string>",
+        );
+        let c2 = container_xml(
+            &["disk0s4"],
+            "",
+            "<key>ContainerReference</key><string>disk3</string>",
+        );
         let containers = parse_apfs_containers(&apfs_list_plist(&format!("{}{}", c1, c2))).unwrap();
         let topo = assemble_topology(disks, containers);
         assert_eq!(topo.disks[0].containers.len(), 2);
@@ -398,21 +504,33 @@ mod tests {
         // Zero PhysicalStores: no backing disk. Must not attach to anything and
         // must be surfaced as a shared/unbacked pool (not vanish, not guess disk0).
         let disks = parse_physical_disks(&disk_list_plist(&["disk0"]), false).unwrap();
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&[], "", ""))).unwrap();
+        let containers =
+            parse_apfs_containers(&apfs_list_plist(&container_xml(&[], "", ""))).unwrap();
         assert!(containers[0].physical_stores.is_empty());
-        assert!(!containers[0].shared_pool, "zero stores is not a multi-disk pool");
+        assert!(
+            !containers[0].shared_pool,
+            "zero stores is not a multi-disk pool"
+        );
         let topo = assemble_topology(disks, containers);
         assert!(topo.disks[0].containers.is_empty());
-        assert_eq!(topo.shared_containers.len(), 1, "unbacked container surfaced, not attached to a disk");
+        assert_eq!(
+            topo.shared_containers.len(),
+            1,
+            "unbacked container surfaced, not attached to a disk"
+        );
     }
 
     #[test]
     fn container_with_unmatched_store_does_not_attach_to_wrong_disk() {
         // Hot-plug / synthesized: store disk9s2 has no matching disk9 in list.
         let disks = parse_physical_disks(&disk_list_plist(&["disk0"]), false).unwrap();
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk9s2"], "", ""))).unwrap();
+        let containers =
+            parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk9s2"], "", ""))).unwrap();
         let topo = assemble_topology(disks, containers);
-        assert!(topo.disks[0].containers.is_empty(), "must not misattribute to disk0");
+        assert!(
+            topo.disks[0].containers.is_empty(),
+            "must not misattribute to disk0"
+        );
         assert_eq!(topo.shared_containers.len(), 1);
     }
 
@@ -422,7 +540,8 @@ mod tests {
                    <key>Name</key><string>Data</string>\
                    <key>Roles</key><array><string>Data</string><string>System</string></array>\
                    <key>CapacityInUse</key><integer>100</integer></dict>";
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
+        let containers =
+            parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
         assert_eq!(containers[0].volumes[0].roles, vec!["Data", "System"]);
         assert_eq!(containers[0].volumes[0].role, "Data");
     }
@@ -432,7 +551,8 @@ mod tests {
         let vol = "<dict><key>DeviceIdentifier</key><string>disk1s1</string>\
                    <key>Name</key><string>Recovery</string>\
                    <key>Role</key><string>Recovery</string></dict>";
-        let containers = parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
+        let containers =
+            parse_apfs_containers(&apfs_list_plist(&container_xml(&["disk0s2"], vol, ""))).unwrap();
         assert_eq!(containers[0].volumes[0].role, "Recovery");
         assert_eq!(containers[0].volumes[0].roles, vec!["Recovery"]);
     }
@@ -441,14 +561,18 @@ mod tests {
     fn malformed_plist_returns_error_not_panic() {
         assert!(parse_physical_disks("not a plist", false).is_err());
         assert!(parse_apfs_containers("{ not xml").is_err());
-        assert!(parse_apfs_containers(&disk_list_plist(&["disk0"])).is_err(), "missing Containers key");
+        assert!(
+            parse_apfs_containers(&disk_list_plist(&["disk0"])).is_err(),
+            "missing Containers key"
+        );
     }
 
     #[test]
     fn partition_entries_excluded_from_physical_disk_list() {
         // diskutil list physical should yield whole disks; if a partition leaks
         // in, we skip it so it never becomes a phantom PhysicalDisk.
-        let disks = parse_physical_disks(&disk_list_plist(&["disk0", "disk0s1", "disk0s2"]), false).unwrap();
+        let disks = parse_physical_disks(&disk_list_plist(&["disk0", "disk0s1", "disk0s2"]), false)
+            .unwrap();
         assert_eq!(disks.len(), 1);
         assert_eq!(disks[0].device, "disk0");
     }
