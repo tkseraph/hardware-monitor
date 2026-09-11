@@ -125,3 +125,79 @@ fn query_respects_max_points() {
     let pts = db.query_range_at("cpu.total_usage", "system", now - 100, now, 10, now).unwrap();
     assert!(pts.len() <= 10, "got {} points, cap was 10", pts.len());
 }
+
+// ---------------------------------------------------------------------------
+// A01 reproductions: aggregation across rolling bucket boundaries loses
+// samples. These FAIL against the current implementation and must pass after
+// R1a/R1b. They run against in-memory DBs only — never real history.
+// ---------------------------------------------------------------------------
+
+/// A01 raw-tier loss (exact reproduction from the review): 10 samples at
+/// ts=1000..1009, one 10s bucket. Aggregate at now=4605 (cutoff=1005, so only
+/// ts<1005 aggregate: a PARTIAL bucket of 5; the other 5 stay raw). Then
+/// aggregate at now=4665 (cutoff=1065, whole bucket eligible). The INSERT OR
+/// REPLACE recomputes the bucket from the 5 still-raw rows and OVERWRITES the
+/// earlier 5-sample bucket — net 10 -> 5.
+#[test]
+fn a01_raw_boundary_does_not_lose_samples_across_passes() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    for ts in 1000..1010 {
+        ins(&db, ts, "cpu.total_usage", "system", ts as f64);
+    }
+
+    db.aggregate_and_prune_at(4605).unwrap();
+    let conserved_after_1: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved_after_1, 10, "after pass 1 all 10 samples conserved");
+
+    db.aggregate_and_prune_at(4665).unwrap();
+    let conserved_after_2: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved_after_2, 10, "after pass 2 (advanced now) no samples lost");
+}
+
+/// A01 coarse-tier loss (exact reproduction): 60 samples at ts=6000..6059.
+/// Aggregate at now=92425 (10s cutoff=6025, so only part rolls up), then at
+/// now=92485. The 60s bucket gets recomputed from a partial 10s source set and
+/// overwritten — net 60 -> 30.
+#[test]
+fn a01_coarse_boundary_does_not_lose_samples_across_passes() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    for ts in 6000..6060 {
+        ins(&db, ts, "disk.throughput", "disk0", ts as f64);
+    }
+
+    db.aggregate_and_prune_at(92425).unwrap();
+    let conserved_after_1: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved_after_1, 60, "after pass 1 all 60 samples conserved");
+
+    db.aggregate_and_prune_at(92485).unwrap();
+    let conserved_after_2: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved_after_2, 60, "after pass 2 (advanced now) no samples lost");
+}
+
+/// Conservation must hold for EVERY bucket-boundary offset of `now`, not just
+/// aligned ones. Sweep the raw-cutoff phase 0..10s and the coarse phase
+/// 0..60s; after repeated advancing passes the sample total must be conserved.
+#[test]
+fn aggregation_conserves_across_all_boundary_offsets() {
+    for phase in 0..10i64 {
+        let db = HistoryDb::new_in_memory().unwrap();
+        let base = 1_800_000_000i64 + phase; // shift cutoff phase
+        // 3h of per-second samples ending well before `base`.
+        let start = base - 10_800;
+        for i in 0..3600 {
+            ins(&db, start + i, "cpu.total_usage", "system", (i % 90) as f64);
+        }
+        // Advance now in several non-aligned steps.
+        for step in 0..5i64 {
+            let now = base + step * 137; // odd stride crosses many boundaries
+            db.aggregate_and_prune_at(now).unwrap();
+            let conserved: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+                + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+            assert_eq!(conserved, 3600, "phase={} step={} lost samples", phase, step);
+        }
+    }
+}

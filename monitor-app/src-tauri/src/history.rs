@@ -111,13 +111,24 @@ impl HistoryDb {
     }
 
     /// Time-injectable variant for deterministic tests.
+    ///
+    /// R1a stop-loss: sources are aggregated only in *closed* buckets. A 10s
+    /// bucket is migrated only when `bucket_start + 10 <= raw_cutoff`, i.e. the
+    /// whole bucket has aged out of the raw tier, so no still-raw row of that
+    /// bucket remains to be recomputed and overwritten later. The raw cutoff is
+    /// aligned DOWN to a 10s boundary so a partially-covered bucket is never
+    /// split. Same for 10s -> 60s (aligned to 60s). Samples that remain raw
+    /// because their bucket is not yet closed are reported as
+    /// `pending_raw_samples` — visible, not silently lost.
     pub fn aggregate_and_prune_at(&self, now: i64) -> SqlResult<AggregateReport> {
         let mut report = AggregateReport::default();
 
         let tx = self.conn.unchecked_transaction()?;
 
         // Step 1: raw samples older than RAW_TTL → 10s buckets.
-        let raw_cutoff = now - RAW_TTL_SECS;
+        // Align the cutoff down to a 10s boundary so we only ever migrate
+        // buckets whose entire [start, start+10) window is below the cutoff.
+        let raw_cutoff = ((now - RAW_TTL_SECS) / 10) * 10;
         let raw_rows = tx.execute(
             "INSERT OR REPLACE INTO metric_buckets
                 (granularity_secs, bucket_start, metric_id, object_id,
@@ -131,7 +142,8 @@ impl HistoryDb {
         )?;
         report.buckets_10s_written = raw_rows;
 
-        // Only delete raw rows that are now covered by a 10s bucket.
+        // Only delete raw rows that are now covered by a 10s bucket. Because
+        // the cutoff is aligned, every migrated row is in a fully-closed bucket.
         let deleted_raw = tx.execute(
             "DELETE FROM metric_samples
              WHERE timestamp < ?1
@@ -146,9 +158,19 @@ impl HistoryDb {
         )?;
         report.raw_deleted = deleted_raw;
 
+        // Stop-loss visibility: rows that have exceeded the raw TTL but whose
+        // bucket is not yet closed stay raw. With an aligned cutoff this should
+        // be zero; any non-zero value signals a boundary bug or clock skew.
+        report.pending_raw_samples = tx.query_row(
+            "SELECT COUNT(*) FROM metric_samples WHERE timestamp < ?1",
+            [now - RAW_TTL_SECS],
+            |r| r.get(0),
+        )?;
+
         // Step 2: 10s buckets older than BUCKET_10S_TTL → 60s buckets.
         // 60s bucket aggregates are sample-count-weighted over the 10s buckets.
-        let b10_cutoff = now - BUCKET_10S_TTL_SECS;
+        // Align to a 60s boundary so only closed 60s windows are migrated.
+        let b10_cutoff = ((now - BUCKET_10S_TTL_SECS) / 60) * 60;
         let b10_rows = tx.execute(
             "INSERT OR REPLACE INTO metric_buckets
                 (granularity_secs, bucket_start, metric_id, object_id,
@@ -177,6 +199,13 @@ impl HistoryDb {
             [b10_cutoff],
         )?;
         report.buckets_10s_deleted = deleted_b10;
+
+        // Stop-loss visibility for the coarse tier.
+        report.pending_buckets_10s = tx.query_row(
+            "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs = 10 AND bucket_start < ?1",
+            [now - BUCKET_10S_TTL_SECS],
+            |r| r.get(0),
+        )?;
 
         // Step 3: hard retention. Raw samples and buckets older than the full
         // window are dropped regardless (they were never aggregatable — e.g.
@@ -274,6 +303,12 @@ pub struct AggregateReport {
     pub buckets_10s_deleted: usize,
     pub raw_expired: usize,
     pub buckets_expired: usize,
+    /// Rows past the raw TTL whose 10s bucket is not yet closed (R1a). Should
+    /// be zero with the aligned cutoff; non-zero indicates a boundary bug or
+    /// clock skew and must be surfaced, not silently dropped.
+    pub pending_raw_samples: i64,
+    /// 10s buckets past the 24h TTL whose 60s window is not yet closed (R1a).
+    pub pending_buckets_10s: i64,
 }
 
 #[cfg(test)]
