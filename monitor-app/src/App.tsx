@@ -1,11 +1,12 @@
 import { storageUsage } from "./storage-usage";
+import { useHistoryQuery, downsamplePreserveExtremes, gapThresholdSecs } from "./history-hooks";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
 const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
-Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。", "Selection left the current list; select it again.": "所选进程已不在当前列表中，请重新选择。", "Failed to load settings": "设置加载失败", "Settings file was invalid; defaults restored. The original file was kept.": "设置文件无效；已恢复默认值，原文件已保留。", "Could not verify login item state; left unchanged.": "无法核实登录项状态，已保持原状。", "Login item changed but settings were not saved.": "登录项已更改，但设置未保存。"});
+Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。", "Selection left the current list; select it again.": "所选进程已不在当前列表中，请重新选择。", "Failed to load settings": "设置加载失败", "Settings file was invalid; defaults restored. The original file was kept.": "设置文件无效；已恢复默认值，原文件已保留。", "Could not verify login item state; left unchanged.": "无法核实登录项状态，已保持原状。", "Login item changed but settings were not saved.": "登录项已更改，但设置未保存。", "Failed to load history": "历史加载失败", "No history yet": "暂无历史数据", "History range": "历史范围", "Throughput History": "吞吐历史"});
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
 interface CpuInfo {
@@ -387,11 +388,16 @@ interface ChartProps {
   label: string;
   /** Value unit: "%" (0-100 fixed axis), "MB/s" (dynamic axis), etc. */
   unit?: "%" | "MB/s" | "°C";
-  /** Gap in seconds beyond which the line breaks instead of interpolating. */
+  /** Gap in seconds beyond which the line breaks instead of interpolating.
+   *  Pass gapThresholdSecs(durationSecs) for range-aware semantics (R10). */
   gap_secs?: number;
+  /** Fixed x-axis window [start,end] in Unix secs so the requested range is
+   *  pinned — leading/trailing empty space stays empty (R10), not stretched. */
+  rangeStart?: number;
+  rangeEnd?: number;
 }
 
-function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
+function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd }: ChartProps) {
   if (history.length === 0) return null;
 
   const W = 800;
@@ -400,13 +406,20 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
   const PAD_BOTTOM = 30;
 
   // Real time axis: x is proportional to timestamp, not array index (F07).
+  // When a fixed range is supplied, the axis pins to it so gaps at the edges
+  // (stopped sampling, no data yet) render as empty space (R10).
   const ts = history.map(([t]) => t);
-  const tMin = Math.min(...ts);
-  const tMax = Math.max(...ts);
+  const tMin = rangeStart ?? Math.min(...ts);
+  const tMax = rangeEnd ?? Math.max(...ts);
   const tSpan = Math.max(tMax - tMin, 1); // avoid /0 for a single instant
 
+  // Downsample to a vertex budget while preserving first/last and each
+  // bucket's min/max, so a spike is never smoothed away and the newest point
+  // is never dropped (R10).
+  const pts = downsamplePreserveExtremes(history, 400);
+
   // Y axis: fixed 0-100 for percentages; dynamic for rates/temps (F06).
-  const vals = history.map(([, v]) => v);
+  const vals = pts.map(([, v]) => v);
   let yMin = 0;
   let yMax = 100;
   if (unit !== "%") {
@@ -420,13 +433,14 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
   const toX = (t: number) => ((t - tMin) / tSpan) * W;
   const toY = (v: number) => PAD_TOP + (1 - (v - yMin) / ySpan) * (H - PAD_TOP - PAD_BOTTOM);
 
-  // Split into segments wherever the time gap exceeds the sampling cadence,
-  // so sleep / collection gaps render as breaks, not connected lines (F07).
+  // Split into segments wherever the time gap exceeds the (range-aware)
+  // threshold, so sleep / collection gaps render as breaks, not connected
+  // lines (F07, R10).
   const segments: [number, number][][] = [];
   let current: [number, number][] = [];
-  for (let i = 0; i < history.length; i++) {
-    const [t, v] = history[i];
-    if (i > 0 && t - history[i - 1][0] > gap_secs) {
+  for (let i = 0; i < pts.length; i++) {
+    const [t, v] = pts[i];
+    if (i > 0 && t - pts[i - 1][0] > gap_secs) {
       if (current.length > 0) segments.push(current);
       current = [];
     }
@@ -434,13 +448,13 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
   }
   if (current.length > 0) segments.push(current);
 
-  const singlePoint = history.length === 1;
+  const singlePoint = pts.length === 1;
 
   const fmtVal = (v: number) =>
     unit === "%" ? `${v.toFixed(0)}%` : unit === "MB/s" ? `${v.toFixed(0)} MB/s` : `${v.toFixed(1)}°C`;
 
   return (
-    <div className="chart" role="img" aria-label={`${label} history chart, ${history.length} samples`}>
+    <div className="chart" role="img" aria-label={`${label} history chart, ${history.length} samples${pts.length < history.length ? `, showing ${pts.length}` : ""}`}>
       <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <defs>
           <linearGradient id={`${label}-area`} x1="0" x2="0" y1="0" y2="1">
@@ -486,61 +500,19 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
 // null when there is no history (or the fetch fails) so no empty frame
 // is rendered — honest absence, never a fabricated zero.
 export function TempSparkline({ historyKey, label }: { historyKey: string; label: string }) {
-  const [history, setHistory] = useState<[number, number][]>([]);
-
-  useEffect(() => {
-    if (!isTauri() || !historyKey) return;
-    let cancelled = false;
-    const fetchHistory = async () => {
-      try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId: "disk.temperature",
-          objectId: historyKey,
-          durationSecs: 3600,
-        });
-        if (!cancelled) setHistory(data);
-      } catch (err) {
-        console.error("Failed to fetch disk temperature history:", err);
-      }
-    };
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [historyKey]);
-
+  // Single-flight, hidden-tab-aware query keyed by the stable device uid (A10).
+  const { points: history } = useHistoryQuery("disk.temperature", historyKey, 3600);
   if (history.length === 0) return null;
   return (
     <div className="chart--mini">
-      <Chart history={history} label={`temp-${label}`} unit="°C" gap_secs={10} />
+      <Chart history={history} label={`temp-${label}`} unit="°C" gap_secs={gapThresholdSecs(3600)} />
     </div>
   );
 }
 
 function CpuPage({ cpu }: { cpu: CpuInfo }) {
   const t = useText();
-  const [history, setHistory] = useState<[number, number][]>([]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId: "cpu.total_usage",
-          objectId: "system",
-          durationSecs: 3600, // Last 1 hour
-        });
-        setHistory(data);
-      } catch (err) {
-        console.error("Failed to fetch history:", err);
-      }
-    };
-
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("cpu.total_usage", "system", 3600);
 
   return (
     <div>
@@ -579,38 +551,19 @@ function CpuPage({ cpu }: { cpu: CpuInfo }) {
         </div>
       </div>
 
-      {history.length > 0 && (
-        <div className="card">
-          <h3>{t("Usage History (Last Hour)")}</h3>
-          <Chart history={history} label="cpu" />
-        </div>
-      )}
+      <div className="card">
+        <h3>{t("Usage History (Last Hour)")}</h3>
+        {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
+        {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
+        {history.length > 0 && <Chart history={history} label="cpu" gap_secs={gapThresholdSecs(3600)} />}
+      </div>
     </div>
   );
 }
 
 function MemoryPage({ memory }: { memory: MemoryInfo }) {
   const t = useText();
-  const [history, setHistory] = useState<[number, number][]>([]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId: "memory.used_percent",
-          objectId: "system",
-          durationSecs: 3600,
-        });
-        setHistory(data);
-      } catch (err) {
-        console.error("Failed to fetch history:", err);
-      }
-    };
-
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("memory.used_percent", "system", 3600);
 
   return (
     <div>
@@ -638,38 +591,19 @@ function MemoryPage({ memory }: { memory: MemoryInfo }) {
         </div>
       </div>
 
-      {history.length > 0 && (
-        <div className="card">
-          <h3>{t("Usage History (Last Hour)")}</h3>
-          <Chart history={history} label="memory" />
-        </div>
-      )}
+      <div className="card">
+        <h3>{t("Usage History (Last Hour)")}</h3>
+        {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
+        {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
+        {history.length > 0 && <Chart history={history} label="memory" gap_secs={gapThresholdSecs(3600)} />}
+      </div>
     </div>
   );
 }
 
 function GpuPage({ gpu }: { gpu: GpuInfo }) {
   const t = useText();
-  const [history, setHistory] = useState<[number, number][]>([]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId: "gpu.utilization",
-          objectId: "gpu0",
-          durationSecs: 3600,
-        });
-        setHistory(data);
-      } catch (err) {
-        console.error("Failed to fetch history:", err);
-      }
-    };
-
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("gpu.utilization", "gpu0", 3600);
 
   return (
     <div>
@@ -698,52 +632,40 @@ function GpuPage({ gpu }: { gpu: GpuInfo }) {
         <p className="note">{t("Unified memory architecture - no separate VRAM")}</p>
       </div>
 
-      {history.length > 0 && (
-        <div className="card">
-          <h3>{t("Usage History (Last Hour)")}</h3>
-          <Chart history={history} label="gpu" />
-        </div>
-      )}
+      <div className="card">
+        <h3>{t("Usage History (Last Hour)")}</h3>
+        {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
+        {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
+        {history.length > 0 && <Chart history={history} label="gpu" gap_secs={gapThresholdSecs(3600)} />}
+      </div>
     </div>
   );
 }
 
 function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskThroughput[] }) {
   const t = useText();
-  const [history, setHistory] = useState<[number, number][]>([]);
   // Track which disk's throughput history is shown; default to the first.
   // Selection and history are keyed by the stable anonymous device_uid (A10),
   // never the volatile diskN address, so hot-plug/reboot cannot cross-join.
   const [selected, setSelected] = useState<string>("");
+  // R10: 1h / 24h / 7d range switcher.
+  const [rangeSecs, setRangeSecs] = useState(3600);
 
   const historyKeyOf = (d: DiskInfo) => d.device_uid || d.device;
   const activeKey = selected || (disks[0] ? historyKeyOf(disks[0]) : "");
   const activeDisk = disks.find((d) => historyKeyOf(d) === activeKey);
   const activeLabel = activeDisk ? activeDisk.name || activeDisk.device : "";
 
-  useEffect(() => {
-    if (!activeKey) return;
-    let cancelled = false;
-    const fetchHistory = async () => {
-      try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId: "disk.throughput",
-          objectId: activeKey, // per-selected-disk history by stable uid (F06, A10)
-          durationSecs: 3600,
-        });
-        if (!cancelled) setHistory(data);
-      } catch (err) {
-        console.error("Failed to fetch history:", err);
-      }
-    };
+  // Single-flight query keyed by (metric, objectId=uid, range): switching disk
+  // or range cancels the prior flight and clears the curve, so a stale or
+  // previous-disk series is never rendered (R10 cache isolation).
+  const { points: history, status: histStatus, loaded: histLoaded } =
+    useHistoryQuery("disk.throughput", activeKey, rangeSecs);
 
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [activeKey]);
+  // Pin the x-axis to the requested window so leading/trailing gaps stay empty.
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const rangeStart = nowSecs - rangeSecs;
+  const rangeEnd = nowSecs;
 
   return (
     <div>
@@ -802,12 +724,22 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
         </div>
       )}
 
-      {history.length > 0 && (
-        <div className="card">
-          <h3>{t("Throughput History (Last Hour)")}{activeLabel ? ` · ${activeLabel}` : ""}</h3>
-          <Chart history={history} label="disk" unit="MB/s" gap_secs={10} />
+      <div className="controls">
+        <div className="sort-buttons" role="group" aria-label={t("History range")}>
+          {([["1h", 3600], ["24h", 86400], ["7d", 604800]] as const).map(([lbl, secs]) => (
+            <button key={lbl} className={rangeSecs === secs ? "active" : ""} onClick={() => setRangeSecs(secs)}>{lbl}</button>
+          ))}
         </div>
-      )}
+      </div>
+
+      <div className="card">
+        <h3>{t("Throughput History")}{activeLabel ? ` · ${activeLabel}` : ""}</h3>
+        {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
+        {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
+        {history.length > 0 && (
+          <Chart history={history} label="disk" unit="MB/s" gap_secs={gapThresholdSecs(rangeSecs)} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+        )}
+      </div>
     </div>
   );
 }
