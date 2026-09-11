@@ -8,6 +8,24 @@ monitor-app/dist/
 *.db-wal
 *.db-shm
 docs/probes/reports/
+scripts/probes/reports/
+
+# Local run logs / scratch
+*.log
+/tmp/
+.superpowers/sdd/
+
+# Environment / secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Signing material — never commit private keys or certs
+*.p12
+*.pem
+*.key
+*.mobileprovision
+*.certSigningRequest
 
 # OS
 .DS_Store
