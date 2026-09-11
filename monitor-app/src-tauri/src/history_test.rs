@@ -469,3 +469,34 @@ fn a02_bucket_covering_query_start_is_not_dropped() {
     assert_eq!(pts[0].0, 1000, "bucket start is 1000");
     assert_eq!(pts[0].1, 9.0);
 }
+
+/// A05 atomicity: insert_samples_batch lands all rows together on success;
+/// an over-budget batch writes nothing. (Budget refusal needs an on-disk file
+/// to measure size, so that part uses a temp file; atomicity uses in-memory.)
+#[test]
+fn batch_insert_is_atomic() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let rows = [
+        ("cpu.total_usage", "system", 1.0, "%"),
+        ("memory.used_percent", "system", 2.0, "%"),
+        ("gpu.utilization", "gpu0", 3.0, "%"),
+    ];
+    db.insert_samples_batch(5000, &rows).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM metric_samples"), 3, "full batch landed");
+
+    // Over-budget batch (budget 0, on-disk file) must write nothing.
+    use std::env::temp_dir;
+    let mut path = temp_dir();
+    path.push(format!("monitor-batch-budget-{}.db", std::process::id()));
+    let fdb = HistoryDb::new(path.clone()).unwrap();
+    fdb.insert_samples_batch(5000, &rows).unwrap();
+    let before = count(&fdb, "SELECT COUNT(*) FROM metric_samples");
+    let more = [("disk.throughput", "disk0", 9.0, "MB/s")];
+    let err = fdb.insert_samples_batch_with_budget(6000, &more, 0);
+    assert!(err.is_err(), "over-budget batch must error");
+    assert_eq!(count(&fdb, "SELECT COUNT(*) FROM metric_samples"), before, "rejected batch wrote nothing");
+    drop(fdb);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}

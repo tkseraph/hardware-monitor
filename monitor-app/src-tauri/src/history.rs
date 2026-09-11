@@ -150,6 +150,42 @@ impl HistoryDb {
         Ok(())
     }
 
+    /// R2/A05: write one snapshot's samples atomically in a single transaction
+    /// with a reused prepared statement. Either the whole batch lands or none
+    /// does — a mid-loop failure can no longer leave half a snapshot persisted.
+    /// `rows` is (metric_id, object_id, value, unit); all share `timestamp`.
+    pub fn insert_samples_batch(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)]) -> SqlResult<()> {
+        self.insert_samples_batch_inner(timestamp, rows, DB_BUDGET_BYTES)
+    }
+
+    #[cfg(test)]
+    pub fn insert_samples_batch_with_budget(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)], budget_bytes: i64) -> SqlResult<()> {
+        self.insert_samples_batch_inner(timestamp, rows, budget_bytes)
+    }
+
+    fn insert_samples_batch_inner(&self, timestamp: i64, rows: &[(&str, &str, f64, &str)], budget_bytes: i64) -> SqlResult<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        if self.over_budget_with(budget_bytes) {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+                Some("history disk budget exceeded; writes paused".to_string()),
+            ));
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for (metric_id, object_id, value, unit) in rows {
+                stmt.execute((timestamp, *metric_id, *object_id, *value, *unit))?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Aggregate eligible raw samples into 10s buckets, and eligible 10s
     /// buckets into 60s buckets, then delete the source rows that are now
     /// fully covered. All steps run in one transaction: if aggregation
@@ -448,6 +484,31 @@ fn now_secs() -> i64 {
 
 pub static DB: Mutex<Option<HistoryDb>> = Mutex::new(None);
 
+/// R2/R4: history-write health, surfaced so the UI can warn instead of the
+/// sampler silently dropping rows. Updated on every batch write / aggregate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryHealth {
+    /// Writes are succeeding.
+    Ok,
+    /// DB file exceeds the safety budget; new writes are paused, data kept.
+    OverBudget,
+    /// A write/aggregate failed (lock, disk full, corruption, ...).
+    WriteError,
+    /// No DB is initialized (init failed) — history unavailable, realtime ok.
+    Unavailable,
+}
+
+static HEALTH: Mutex<HistoryHealth> = Mutex::new(HistoryHealth::Ok);
+
+/// Current history-write health for the UI / status line.
+pub fn health() -> HistoryHealth {
+    *HEALTH.lock().unwrap()
+}
+
+fn set_health(h: HistoryHealth) {
+    *HEALTH.lock().unwrap() = h;
+}
+
 /// Resolve the data directory. Tests and isolated acceptance runs set
 /// MONITOR_DATA_DIR to a throwaway path so they never touch the real
 /// user history (F27). Production leaves it unset and uses app_data_dir.
@@ -457,9 +518,21 @@ pub fn init_db(app_data_dir: PathBuf) -> SqlResult<()> {
         .unwrap_or(app_data_dir);
     std::fs::create_dir_all(&dir).ok();
     let db_path = dir.join("monitor.db");
-    let db = HistoryDb::new(db_path)?;
-    *DB.lock().unwrap() = Some(db);
-    Ok(())
+    match HistoryDb::new(db_path) {
+        Ok(db) => {
+            *DB.lock().unwrap() = Some(db);
+            set_health(HistoryHealth::Ok);
+            Ok(())
+        }
+        Err(e) => {
+            // R2/A05: init failure degrades to "realtime ok, history
+            // unavailable" — never create a substitute empty DB over the
+            // user's data, and surface the state instead of panicking.
+            *DB.lock().unwrap() = None;
+            set_health(HistoryHealth::Unavailable);
+            Err(e)
+        }
+    }
 }
 
 /// Record a sample stamped with the moment the source observed it (F11).
@@ -470,10 +543,36 @@ pub fn record_sample_at(metric_id: &str, object_id: &str, value: f64, unit: &str
     Ok(())
 }
 
+/// R2/A05: record a whole snapshot atomically; update health on the result.
+/// Returns the error to the caller instead of swallowing it (no `let _ =`).
+pub fn record_snapshot_batch(timestamp: i64, rows: &[(&str, &str, f64, &str)]) -> SqlResult<()> {
+    let guard = DB.lock().unwrap();
+    if let Some(ref db) = *guard {
+        match db.insert_samples_batch(timestamp, rows) {
+            Ok(()) => {
+                set_health(HistoryHealth::Ok);
+                Ok(())
+            }
+            Err(e) => {
+                let h = if db.over_budget() { HistoryHealth::OverBudget } else { HistoryHealth::WriteError };
+                set_health(h);
+                Err(e)
+            }
+        }
+    } else {
+        set_health(HistoryHealth::Unavailable);
+        Ok(())
+    }
+}
+
 /// Run one aggregation + retention pass. Called by the scheduler.
 pub fn aggregate_and_prune() -> SqlResult<AggregateReport> {
     if let Some(ref db) = *DB.lock().unwrap() {
-        db.aggregate_and_prune()
+        let r = db.aggregate_and_prune();
+        if r.is_err() {
+            set_health(HistoryHealth::WriteError);
+        }
+        r
     } else {
         Ok(AggregateReport::default())
     }

@@ -315,23 +315,34 @@ fn sample_disk_throughput(physical_devices: &[String]) -> Result<Vec<DiskThrough
 
 /// Record one snapshot's metrics to history with the snapshot's own
 /// observation timestamp, not a fresh per-row timestamp (F11).
+///
+/// R2/A05: the whole snapshot is one atomic batch write (single transaction).
+/// A failure is surfaced via history::health() instead of silently dropping
+/// rows one by one with `let _ =`.
 pub fn record_snapshot(info: &SystemInfo) {
     let ts = info.observed_at;
-    let _ = history::record_sample_at("cpu.total_usage", "system", info.cpu.total_usage as f64, "%", ts);
-    let _ = history::record_sample_at("memory.used_percent", "system", info.memory.used_percent as f64, "%", ts);
-    let _ = history::record_sample_at("gpu.utilization", "gpu0", info.gpu.utilization as f64, "%", ts);
-    for (idx, usage) in info.cpu.per_core_usage.iter().enumerate() {
-        let _ = history::record_sample_at("cpu.per_core", &format!("core{}", idx), *usage as f64, "%", ts);
+    // One row per metric; roughly 3 + cores + disks + disk-temps.
+    let mut rows: Vec<(&str, &str, f64, &str)> =
+        Vec::with_capacity(3 + info.cpu.per_core_usage.len() + info.disk_throughput.len() + info.disks.len());
+    rows.push(("cpu.total_usage", "system", info.cpu.total_usage as f64, "%"));
+    rows.push(("memory.used_percent", "system", info.memory.used_percent as f64, "%"));
+    rows.push(("gpu.utilization", "gpu0", info.gpu.utilization as f64, "%"));
+    // per-core object ids must outlive the call — build owned strings.
+    let core_ids: Vec<String> = (0..info.cpu.per_core_usage.len()).map(|i| format!("core{}", i)).collect();
+    for (i, usage) in info.cpu.per_core_usage.iter().enumerate() {
+        rows.push(("cpu.per_core", core_ids[i].as_str(), *usage as f64, "%"));
     }
     for disk in &info.disk_throughput {
-        let _ = history::record_sample_at("disk.throughput", &disk.device, disk.mb_per_sec as f64, "MB/s", ts);
+        rows.push(("disk.throughput", disk.device.as_str(), disk.mb_per_sec as f64, "MB/s"));
     }
     // Disk temperature into history (only real readings; absent stays absent).
     for disk in &info.disks {
         if let Some(t) = disk.temperature_celsius {
-            let _ = history::record_sample_at("disk.temperature", &disk.device, t as f64, "°C", ts);
+            rows.push(("disk.temperature", disk.device.as_str(), t as f64, "°C"));
         }
     }
+    // Surface the error via health(); do not panic the sampler on a full disk.
+    let _ = history::record_snapshot_batch(ts, &rows);
 }
 
 // ---------- Shared scheduler state ----------

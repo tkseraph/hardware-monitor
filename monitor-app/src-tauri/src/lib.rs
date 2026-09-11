@@ -10,6 +10,7 @@ mod query;
 mod sampler;
 mod settings;
 mod storage;
+mod termination;
 
 #[cfg(test)]
 mod history_test;
@@ -119,6 +120,11 @@ async fn set_launch_at_login(enable: bool, app: tauri::AppHandle) -> Result<bool
     Ok(registered)
 }
 
+#[tauri::command]
+async fn terminate_process(pid: u32, start_marker: u64) -> Result<(), String> {
+    termination::request(pid, start_marker)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -131,11 +137,18 @@ pub fn run() {
         )?;
       }
 
-      // Initialize history database
-      let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
-      std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
-      history::init_db(app_data_dir.clone()).expect("failed to init database");
-      settings::init(app_data_dir);
+      // Initialize history database. R2/A05: a failure degrades to "realtime
+      // ok, history unavailable" — the app keeps running and sampling; it does
+      // NOT panic, and never creates a substitute empty DB over user data.
+      if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&app_data_dir);
+        if let Err(e) = history::init_db(app_data_dir.clone()) {
+          log::error!("history DB init failed; continuing without history: {:?}", e);
+        }
+        settings::init(app_data_dir);
+      } else {
+        log::error!("no app data dir; history and settings persistence disabled");
+      }
 
       // Create menu bar tray icon
       let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -220,6 +233,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       get_system_info,
       get_processes,
+      terminate_process,
       get_history,
       get_settings,
       set_settings,
