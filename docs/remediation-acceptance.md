@@ -59,4 +59,4 @@
 
 构建可复现：`bash scripts/build-release.sh`（完整构建 → 修复签名 → 打 DMG → 校验 → 输出 SHA-256）。
 
-最终 DMG SHA-256：`358d914c7c2ba35a4412d94dc1cc958fc732ae0032c7a1e2f9e3d858d9297711`（含托盘图标修复与总览存储区）
+最终 DMG SHA-256：`b5fe8d7df9b8f992cdea81f6f136ffe25c6c57ed472393ad256ede2c76f51b47`（含托盘图标修复与总览存储区，含 dark 模式迷你走势图修复）
