@@ -3,10 +3,12 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 
 mod history;
+mod loginitem;
 mod parse;
 mod processes;
 mod query;
 mod sampler;
+mod settings;
 mod storage;
 
 #[cfg(test)]
@@ -85,6 +87,38 @@ async fn get_system_info() -> Result<SystemInfo, String> {
         .ok_or_else(|| "collector is still warming up".to_string())
 }
 
+#[tauri::command]
+async fn get_settings() -> Result<settings::Settings, String> {
+    Ok(settings::get())
+}
+
+#[tauri::command]
+async fn set_settings(new_settings: settings::Settings) -> Result<(), String> {
+    settings::set(new_settings)
+}
+
+/// Opt-in login item toggle. Returns the resulting registered state.
+#[tauri::command]
+async fn set_launch_at_login(enable: bool, app: tauri::AppHandle) -> Result<bool, String> {
+    let app_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            // exe is at monitor.app/Contents/MacOS/monitor; the bundle root
+            // is three levels up.
+            p.ancestors().nth(3).map(|a| a.to_path_buf())
+        })
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .ok_or("could not resolve .app bundle path")?;
+    loginitem::set_launch_at_login(enable, &app_path)?;
+    let registered = loginitem::is_registered(&app_path).unwrap_or(enable);
+    // Persist the user's intent in settings regardless of query accuracy.
+    let mut s = settings::get();
+    s.launch_at_login = registered;
+    let _ = settings::set(s);
+    let _ = app; // app handle reserved for future native registration APIs
+    Ok(registered)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -100,7 +134,8 @@ pub fn run() {
       // Initialize history database
       let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
       std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
-      history::init_db(app_data_dir).expect("failed to init database");
+      history::init_db(app_data_dir.clone()).expect("failed to init database");
+      settings::init(app_data_dir);
 
       // Create menu bar tray icon
       let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -175,7 +210,14 @@ pub fn run() {
         _ => {}
       }
     })
-    .invoke_handler(tauri::generate_handler![get_system_info, get_processes, get_history])
+    .invoke_handler(tauri::generate_handler![
+      get_system_info,
+      get_processes,
+      get_history,
+      get_settings,
+      set_settings,
+      set_launch_at_login,
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

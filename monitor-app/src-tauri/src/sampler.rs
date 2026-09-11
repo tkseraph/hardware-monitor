@@ -14,11 +14,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
-/// Foreground cadence target: 1s.
-pub const FG_INTERVAL: Duration = Duration::from_millis(1000);
-/// Background cadence target: 3s (window hidden/minimized).
-pub const BG_INTERVAL: Duration = Duration::from_millis(3000);
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpuInfo {
     pub name: String,
@@ -350,18 +345,21 @@ pub fn latest_snapshot() -> Option<SystemInfo> {
 }
 
 /// Run the collection loop forever. Intended to be spawned once at setup.
-/// The interval switches between FG/BG based on window visibility; sampling
-/// continues regardless so history has no WebView-throttling gap (F08).
+/// The interval switches between the configured foreground/background
+/// cadence based on window visibility; sampling continues regardless so
+/// history has no WebView-throttling gap (F08). Settings are re-read each
+/// cycle so changes take effect without a restart (S8).
 pub async fn run_scheduler() {
     {
         let mut guard = SAMPLER.lock().expect("sampler lock poisoned");
         *guard = Some(Sampler::new());
     }
     loop {
+        let s = crate::settings::get();
         let interval = if WINDOW_VISIBLE.load(Ordering::SeqCst) {
-            FG_INTERVAL
+            Duration::from_millis(s.foreground_interval_ms)
         } else {
-            BG_INTERVAL
+            Duration::from_millis(s.background_interval_ms)
         };
         tokio::time::sleep(interval).await;
 
