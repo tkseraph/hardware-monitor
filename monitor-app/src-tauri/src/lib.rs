@@ -140,7 +140,8 @@ async fn get_system_info() -> Result<SystemInfo, String> {
     let memory = get_memory_info()?;
     let gpu = get_gpu_info()?;
     let disks = get_disk_info()?;
-    let disk_throughput = get_disk_throughput()?;
+    let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
+    let disk_throughput = get_disk_throughput(&devices)?;
 
     // Record samples to history
     let _ = history::record_sample("cpu.total_usage", "system", cpu.total_usage as f64, "%");
@@ -229,26 +230,50 @@ fn get_memory_info() -> Result<MemoryInfo, String> {
         .args(&["-n", "hw.memsize"])
         .output()
         .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err("sysctl hw.memsize failed".to_string());
+    }
     let total_bytes: u64 = String::from_utf8_lossy(&output.stdout)
         .trim()
         .parse()
-        .unwrap_or(0);
+        .map_err(|_| "hw.memsize not a number".to_string())?;
+    if total_bytes == 0 {
+        return Err("hw.memsize is zero".to_string());
+    }
 
-    // Get memory pressure info
+    // Query the real page size instead of hardcoding 16384 (F02).
+    let page_size = Command::new("sysctl")
+        .args(&["-n", "hw.pagesize"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+        .filter(|&p| p > 0)
+        .unwrap_or(16384);
+
     let output = Command::new("memory_pressure")
         .output()
         .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err("memory_pressure failed".to_string());
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    let page_size = 16384u64; // M4 page size
+    // Missing fields stay missing; we do not fabricate 0 (F04). If any of
+    // the fields used in the used/available formula is absent we return an
+    // error rather than a misleading partial sum.
+    let pages = |key: &str| -> Result<u64, String> {
+        parse::parse_labeled_number(&stdout, key)
+            .ok_or_else(|| format!("memory_pressure missing '{}'", key))
+    };
 
-    let free = extract_pages(&stdout, "Pages free:") * page_size;
-    let active = extract_pages(&stdout, "Pages active:") * page_size;
-    let inactive = extract_pages(&stdout, "Pages inactive:") * page_size;
-    let wired = extract_pages(&stdout, "Pages wired down:") * page_size;
-    let compressor = extract_pages(&stdout, "Pages used by compressor:") * page_size;
-    let speculative = extract_pages(&stdout, "Pages speculative:") * page_size;
-    let purgeable = extract_pages(&stdout, "Pages purgeable:") * page_size;
+    let free = pages("Pages free:")? * page_size;
+    let active = pages("Pages active:")? * page_size;
+    let inactive = pages("Pages inactive:")? * page_size;
+    let wired = pages("Pages wired down:")? * page_size;
+    let compressor = pages("Pages used by compressor:")? * page_size;
+    let speculative = pages("Pages speculative:")? * page_size;
+    let purgeable = pages("Pages purgeable:")? * page_size;
 
     let used_bytes = active + wired + compressor;
     let available_bytes = free + inactive + speculative + purgeable;
@@ -260,17 +285,6 @@ fn get_memory_info() -> Result<MemoryInfo, String> {
         available_bytes,
         used_percent,
     })
-}
-
-fn extract_pages(text: &str, pattern: &str) -> u64 {
-    text.lines()
-        .find(|line| line.contains(pattern))
-        .and_then(|line| {
-            line.split_whitespace()
-                .nth(2)
-                .and_then(|s| s.parse::<u64>().ok())
-        })
-        .unwrap_or(0)
 }
 
 fn get_gpu_info() -> Result<GpuInfo, String> {
@@ -290,26 +304,33 @@ fn get_gpu_info() -> Result<GpuInfo, String> {
         "Unknown".to_string()
     };
 
-    // Get GPU utilization and memory from ioreg
+    // Get GPU utilization and memory from ioreg. Exact key matching so
+    // "In use system memory (driver)" never satisfies "In use system
+    // memory" (F03). Missing keys are an error, not 0 (F04).
     let output = Command::new("ioreg")
         .args(&["-l", "-w", "0"])
         .output()
         .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err("ioreg failed".to_string());
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    let mut utilization = 0.0;
-    let mut memory_used_bytes = 0u64;
-    let mut memory_allocated_bytes = 0u64;
+    let stats_start = stdout
+        .find("\"PerformanceStatistics\" = {")
+        .ok_or("no PerformanceStatistics block")?;
+    let stats_end = stdout[stats_start..]
+        .find('}')
+        .map(|e| stats_start + e)
+        .ok_or("unterminated PerformanceStatistics block")?;
+    let stats_str = &stdout[stats_start..=stats_end];
 
-    // Parse PerformanceStatistics
-    if let Some(start) = stdout.find("\"PerformanceStatistics\" = {") {
-        if let Some(end) = stdout[start..].find('}') {
-            let stats_str = &stdout[start..start + end];
-            utilization = extract_stat_value(stats_str, "Device Utilization %") as f32;
-            memory_used_bytes = extract_stat_value(stats_str, "In use system memory");
-            memory_allocated_bytes = extract_stat_value(stats_str, "Alloc system memory");
-        }
-    }
+    let utilization = parse::parse_ioreg_stat(stats_str, "Device Utilization %")
+        .ok_or("missing Device Utilization %")? as f32;
+    let memory_used_bytes = parse::parse_ioreg_stat(stats_str, "In use system memory")
+        .ok_or("missing In use system memory")?;
+    let memory_allocated_bytes = parse::parse_ioreg_stat(stats_str, "Alloc system memory")
+        .ok_or("missing Alloc system memory")?;
 
     Ok(GpuInfo {
         name,
@@ -317,14 +338,6 @@ fn get_gpu_info() -> Result<GpuInfo, String> {
         memory_used_bytes,
         memory_allocated_bytes,
     })
-}
-
-fn extract_stat_value(text: &str, key: &str) -> u64 {
-    text.split(',')
-        .find(|part| part.contains(key))
-        .and_then(|part| part.split('=').nth(1))
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0)
 }
 
 fn get_disk_info() -> Result<Vec<DiskInfo>, String> {
@@ -354,7 +367,14 @@ fn get_disk_info() -> Result<Vec<DiskInfo>, String> {
                                             .and_then(|v| v.as_dictionary())
                                             .and_then(|dict| dict.get("TEMPERATURE"))
                                             .and_then(|v| v.as_unsigned_integer())
-                                            .map(|k| k as f32 - 273.15);
+                                            .and_then(|k| {
+                                                // Field name explicitly says values may vary and are
+                                                // not guaranteed. Reject implausible raw Kelvin before
+                                                // converting, so a sentinel/0 never becomes a bogus
+                                                // -273°C or a wildly wrong reading (F18).
+                                                let c = k as f32 - 273.15;
+                                                if (0.0..=150.0).contains(&c) { Some(c) } else { None }
+                                            });
 
                                         let power_on_hours = info_dict.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
                                             .and_then(|v| v.as_dictionary())
@@ -390,11 +410,24 @@ fn get_disk_info() -> Result<Vec<DiskInfo>, String> {
     Ok(disks)
 }
 
-fn get_disk_throughput() -> Result<Vec<DiskThroughput>, String> {
+fn get_disk_throughput(physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {
+    if physical_devices.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Explicitly name the physical disks we already enumerated, instead of
+    // relying on iostat's default device set which can miss external SSDs
+    // and include non-physical synthesized devices (F05).
+    let mut args: Vec<String> = vec!["-d".into(), "-c".into(), "2".into(), "-w".into(), "1".into()];
+    for dev in physical_devices {
+        args.push(dev.clone());
+    }
     let output = Command::new("iostat")
-        .args(&["-d", "-c", "2", "-w", "1"])
+        .args(&args)
         .output()
         .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!("iostat exited with {}", output.status));
+    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.lines().collect();

@@ -294,25 +294,32 @@ def probe_memory(host: Dict[str, Any]) -> List[Dict[str, Any]]:
             "evidence": {},
         })
 
-    # 进程内存排行：ps -A -o pid,rss,comm -r
-    r = run(["ps", "-A", "-o", "pid,rss,comm", "-r"], timeout=10)
+    # 进程内存排行：ps -A -o pid,rss,comm 然后按 RSS 数值降序取前 10。
+    # 注意：不能用 `ps -r` —— 它按 CPU% 排序，不是内存 (F16)。
+    r = run(["ps", "-A", "-o", "pid,rss,comm"], timeout=10)
     if r["exit_code"] == 0:
         try:
             lines = r["stdout"].strip().split('\n')
             processes = []
-            for line in lines[1:11]:  # 跳过表头，取前 10
+            for line in lines[1:]:  # 跳过表头
                 parts = line.split(None, 2)
                 if len(parts) >= 3:
-                    processes.append({
-                        "pid": int(parts[0]),
-                        "rss_kb": int(parts[1]),
-                        "name": parts[2].split('/')[-1],  # 只保留进程名，不含路径
-                    })
+                    try:
+                        processes.append({
+                            "pid": int(parts[0]),
+                            "rss_kb": int(parts[1]),
+                            "name": parts[2].split('/')[-1],  # 只保留进程名，不含路径
+                        })
+                    except ValueError:
+                        continue
+            # 按 RSS 降序取前 10
+            processes.sort(key=lambda p: p["rss_kb"], reverse=True)
+            processes = processes[:10]
             probes.append({
                 "id": "memory.process_rank",
                 "category": "memory",
                 "description": "进程内存排行（RSS）",
-                "source": "ps -A -o pid,rss,comm -r",
+                "source": "ps -A -o pid,rss,comm, sorted by rss desc",
                 "status": "verified",
                 "value": {"top_processes": processes},
                 "unit": "KB",
@@ -327,7 +334,7 @@ def probe_memory(host: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "id": "memory.process_rank",
                 "category": "memory",
                 "description": "进程内存排行（RSS）",
-                "source": "ps -A -o pid,rss,comm -r",
+                "source": "ps -A -o pid,rss,comm, sorted by rss desc",
                 "status": "error",
                 "value": None,
                 "unit": "KB",
@@ -342,7 +349,7 @@ def probe_memory(host: Dict[str, Any]) -> List[Dict[str, Any]]:
             "id": "memory.process_rank",
             "category": "memory",
             "description": "进程内存排行（RSS）",
-            "source": "ps -A -o pid,rss,comm -r",
+            "source": "ps -A -o pid,rss,comm, sorted by rss desc",
             "status": "error",
             "value": None,
             "unit": "KB",
@@ -358,19 +365,30 @@ def probe_memory(host: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def probe_gpu() -> List[Dict[str, Any]]:
     probes = []
+    # GPU 名称：实际从 system_profiler 读取，不硬编码 (F16)。
+    gpu_name = None
+    r_sp = run(["system_profiler", "SPDisplaysDataType", "-json"], timeout=15)
+    if r_sp["exit_code"] == 0:
+        try:
+            sp = json.loads(r_sp["stdout"])
+            items = sp.get("SPDisplaysDataType", [])
+            if items:
+                gpu_name = items[0].get("_name")
+        except (json.JSONDecodeError, KeyError, IndexError):
+            gpu_name = None
     probes.append({
         "id": "gpu.name",
         "category": "gpu",
         "description": "GPU 名称",
         "source": "system_profiler SPDisplaysDataType",
-        "status": "verified",
-        "value": "Apple M4",
+        "status": "verified" if gpu_name else "error",
+        "value": gpu_name,
         "unit": "",
         "sampled_at": now(),
         "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "集成 GPU，与系统共享统一内存",
-        "evidence": {"raw": "Apple M4"},
+        "confidence": "high" if gpu_name else "low",
+        "notes": "集成 GPU，与系统共享统一内存" if gpu_name else "system_profiler 未返回名称",
+        "evidence": {"raw": gpu_name} if gpu_name else {},
     })
     # GPU 利用率和内存统计：ioreg PerformanceStatistics
     r = run(["ioreg", "-l", "-w", "0"], timeout=10)
@@ -701,79 +719,39 @@ def probe_disks() -> List[Dict[str, Any]]:
             "evidence": {},
         })
 
-    # 温度、风扇、健康：评估普通权限下的可行性
-    # SMC 温度：powermetrics 需要 root，SMC 直接访问需 IOKit 私有 API
-    probes.append({
-        "id": "thermal.cpu",
-        "category": "thermal",
-        "description": "CPU 温度",
-        "source": "SMC / IOKit 传感器",
-        "status": "unavailable",
-        "value": None,
-        "unit": "celsius",
-        "sampled_at": now(),
-        "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "powermetrics 需 root；SMC 私有 API 需 IOKit；普通权限下不可用",
-        "evidence": {},
-    })
-    probes.append({
-        "id": "thermal.gpu",
-        "category": "thermal",
-        "description": "GPU 温度",
-        "source": "SMC / IOKit 传感器",
-        "status": "unavailable",
-        "value": None,
-        "unit": "celsius",
-        "sampled_at": now(),
-        "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "同 CPU 温度，普通权限下不可用",
-        "evidence": {},
-    })
-    probes.append({
-        "id": "fan.rpm",
-        "category": "fan",
-        "description": "风扇转速",
-        "source": "SMC / IOKit 传感器",
-        "status": "unavailable",
-        "value": None,
-        "unit": "rpm",
-        "sampled_at": now(),
-        "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "Mac mini M4 无风扇；ioreg 未见风扇传感器",
-        "evidence": {},
-    })
+    # 注意：thermal.cpu / thermal.gpu / fan.rpm 由 probe_thermal_fan() 统一注册，
+    # 这里不再重复 (F16 重复 ID)。
 
-    # 磁盘健康：diskutil 仅提供 SMART Verified 摘要，无温度/通电时间/磨损
-    # 需要 NVMe SMART 命令或第三方工具
+    # 磁盘温度/通电时间：本脚本未实现读取（Rust 应用已通过 diskutil
+    # SMARTDeviceSpecificKeysMayVaryNotGuaranteed 读到 TEMPERATURE /
+    # POWER_ON_HOURS_0，说明普通权限下并非不可用）。探测脚本未验证前
+    # 标 not_implemented，不能写 unavailable (F16)。
     probes.append({
         "id": "disk.temperature",
         "category": "disk",
         "description": "磁盘温度",
-        "source": "SMART/NVMe 健康接口",
-        "status": "unavailable",
+        "source": "diskutil SMARTDeviceSpecificKeysMayVaryNotGuaranteed.TEMPERATURE",
+        "status": "not_implemented",
         "value": None,
         "unit": "celsius",
         "sampled_at": now(),
         "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "diskutil 仅提供 SMART Verified 摘要；NVMe SMART 需专用工具或增强权限",
+        "confidence": "low",
+        "notes": "探测脚本未实现；Rust 应用已从 diskutil 读到该字段，待统一验证",
         "evidence": {},
     })
     probes.append({
         "id": "disk.power_on_hours",
         "category": "disk",
         "description": "磁盘通电时间",
-        "source": "SMART/NVMe 健康接口",
-        "status": "unavailable",
+        "source": "diskutil SMARTDeviceSpecificKeysMayVaryNotGuaranteed.POWER_ON_HOURS_0",
+        "status": "not_implemented",
         "value": None,
         "unit": "hours",
         "sampled_at": now(),
         "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "同磁盘温度，普通权限下不可用",
+        "confidence": "low",
+        "notes": "探测脚本未实现；多段高字节字段（POWER_ON_HOURS_1 等）未验证",
         "evidence": {},
     })
     return probes
@@ -815,13 +793,13 @@ def probe_thermal_fan() -> List[Dict[str, Any]]:
         "category": "fan",
         "description": "风扇转速",
         "source": "SMC / IOKit 传感器",
-        "status": "unavailable",
+        "status": "not_implemented",
         "value": None,
         "unit": "rpm",
         "sampled_at": now(),
         "sample_window_ms": 0,
-        "confidence": "high",
-        "notes": "Mac mini M4 无风扇；ioreg 未见风扇传感器",
+        "confidence": "low",
+        "notes": "本脚本未实际检测风扇传感器；找不到 ioreg 字段不能推断无风扇。需独立验证。",
         "evidence": {},
     })
     return probes
