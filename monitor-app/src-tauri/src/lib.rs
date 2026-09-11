@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
-use sysinfo::{System, RefreshKind, CpuRefreshKind};
 use std::sync::Mutex;
-use std::time::Duration;
+use sysinfo::System;
 use tauri::{Manager, WindowEvent};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
@@ -10,52 +8,16 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}
 mod history;
 mod parse;
 mod query;
+mod sampler;
 
 #[cfg(test)]
 mod history_test;
 
-static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
+pub use sampler::SystemInfo;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CpuInfo {
-    pub name: String,
-    pub physical_cores: u32,
-    pub logical_cores: u32,
-    pub total_usage: f32,
-    pub per_core_usage: Vec<f32>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MemoryInfo {
-    pub total_bytes: u64,
-    pub used_bytes: u64,
-    pub available_bytes: u64,
-    pub used_percent: f32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GpuInfo {
-    pub name: String,
-    pub utilization: f32,
-    pub memory_used_bytes: u64,
-    pub memory_allocated_bytes: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DiskInfo {
-    pub device: String,
-    pub name: String,
-    pub size_bytes: u64,
-    pub smart_status: String,
-    pub temperature_celsius: Option<f32>,
-    pub power_on_hours: Option<u64>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DiskThroughput {
-    pub device: String,
-    pub mb_per_sec: f32,
-}
+/// Process enumeration uses its own System instance so refreshing it never
+/// perturbs the CPU differential baseline owned by the sampler (F10).
+static PROCESS_SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProcessInfo {
@@ -65,27 +27,17 @@ pub struct ProcessInfo {
     pub cpu_usage: f32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SystemInfo {
-    pub cpu: CpuInfo,
-    pub memory: MemoryInfo,
-    pub gpu: GpuInfo,
-    pub disks: Vec<DiskInfo>,
-    pub disk_throughput: Vec<DiskThroughput>,
-}
-
 #[tauri::command]
 async fn get_processes() -> Result<Vec<ProcessInfo>, String> {
-    let mut sys_guard = SYSTEM.lock().map_err(|e| e.to_string())?;
+    let mut sys_guard = PROCESS_SYSTEM.lock().map_err(|e| e.to_string())?;
     if sys_guard.is_none() {
-        *sys_guard = Some(System::new_with_specifics(
-            RefreshKind::new().with_cpu(CpuRefreshKind::everything())
-        ));
+        *sys_guard = Some(System::new());
     }
 
     let mut processes = Vec::new();
     if let Some(ref mut sys) = *sys_guard {
-        sys.refresh_all();
+        // Refresh only processes, not CPU — the sampler owns CPU state.
+        sys.refresh_processes();
         for (pid, process) in sys.processes() {
             processes.push(ProcessInfo {
                 pid: pid.as_u32(),
@@ -94,9 +46,8 @@ async fn get_processes() -> Result<Vec<ProcessInfo>, String> {
                 cpu_usage: process.cpu_usage(),
             });
         }
-        // Sort by memory usage descending
+        // Sort by memory descending, then truncate to top 50.
         processes.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes));
-        // Take top 50
         processes.truncate(50);
     }
     Ok(processes)
@@ -108,7 +59,10 @@ async fn get_history(metric_id: String, object_id: String, duration_secs: i64) -
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    let start_time = now - duration_secs;
+
+    // Validate the query before touching the DB (F14).
+    let q = query::validate_query(&metric_id, &object_id, duration_secs, now)
+        .map_err(|e| format!("invalid history query: {:?}", e))?;
 
     let db_guard = history::DB.lock().map_err(|e| e.to_string())?;
     if let Some(ref db) = *db_guard {
@@ -118,7 +72,7 @@ async fn get_history(metric_id: String, object_id: String, duration_secs: i64) -
              ORDER BY timestamp ASC"
         ).map_err(|e| e.to_string())?;
 
-        let rows = stmt.query_map([&metric_id, &object_id, &start_time.to_string()], |row| {
+        let rows = stmt.query_map([&q.metric_id, &q.object_id, &q.start_secs.to_string()], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
         }).map_err(|e| e.to_string())?;
 
@@ -134,323 +88,12 @@ async fn get_history(metric_id: String, object_id: String, duration_secs: i64) -
     }
 }
 
+/// IPC returns the scheduler's cached snapshot. It never triggers a
+/// collection pass, so page load / polling cannot distort sampling (F08).
 #[tauri::command]
 async fn get_system_info() -> Result<SystemInfo, String> {
-    let cpu = get_cpu_info()?;
-    let memory = get_memory_info()?;
-    let gpu = get_gpu_info()?;
-    let disks = get_disk_info()?;
-    let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
-    let disk_throughput = get_disk_throughput(&devices)?;
-
-    // Record samples to history
-    let _ = history::record_sample("cpu.total_usage", "system", cpu.total_usage as f64, "%");
-    let _ = history::record_sample("memory.used_percent", "system", memory.used_percent as f64, "%");
-    let _ = history::record_sample("gpu.utilization", "gpu0", gpu.utilization as f64, "%");
-    for (idx, usage) in cpu.per_core_usage.iter().enumerate() {
-        let _ = history::record_sample("cpu.per_core", &format!("core{}", idx), *usage as f64, "%");
-    }
-    for disk in &disk_throughput {
-        let _ = history::record_sample("disk.throughput", &disk.device, disk.mb_per_sec as f64, "MB/s");
-    }
-
-    Ok(SystemInfo {
-        cpu,
-        memory,
-        gpu,
-        disks,
-        disk_throughput,
-    })
-}
-
-fn get_cpu_info() -> Result<CpuInfo, String> {
-    // Get CPU topology
-    let output = Command::new("sysctl")
-        .args(&["-n", "machdep.cpu.brand_string"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    let output = Command::new("sysctl")
-        .args(&["-n", "hw.physicalcpu"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let physical_cores: u32 = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0);
-
-    let output = Command::new("sysctl")
-        .args(&["-n", "hw.logicalcpu"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let logical_cores: u32 = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0);
-
-    // Get per-core CPU usage via sysinfo
-    let mut sys_guard = SYSTEM.lock().map_err(|e| e.to_string())?;
-    if sys_guard.is_none() {
-        *sys_guard = Some(System::new_with_specifics(
-            RefreshKind::new().with_cpu(CpuRefreshKind::everything())
-        ));
-        // First refresh to initialize
-        if let Some(ref mut sys) = *sys_guard {
-            sys.refresh_cpu_usage();
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    }
-
-    let mut total_usage = 0.0;
-    let mut per_core_usage = Vec::new();
-
-    if let Some(ref mut sys) = *sys_guard {
-        sys.refresh_cpu_usage();
-        let cpus = sys.cpus();
-        for cpu in cpus {
-            per_core_usage.push(cpu.cpu_usage());
-        }
-        if !cpus.is_empty() {
-            total_usage = cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32;
-        }
-    }
-
-    Ok(CpuInfo {
-        name,
-        physical_cores,
-        logical_cores,
-        total_usage,
-        per_core_usage,
-    })
-}
-
-fn get_memory_info() -> Result<MemoryInfo, String> {
-    let output = Command::new("sysctl")
-        .args(&["-n", "hw.memsize"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("sysctl hw.memsize failed".to_string());
-    }
-    let total_bytes: u64 = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .map_err(|_| "hw.memsize not a number".to_string())?;
-    if total_bytes == 0 {
-        return Err("hw.memsize is zero".to_string());
-    }
-
-    // Query the real page size instead of hardcoding 16384 (F02).
-    let page_size = Command::new("sysctl")
-        .args(&["-n", "hw.pagesize"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
-        .filter(|&p| p > 0)
-        .unwrap_or(16384);
-
-    let output = Command::new("memory_pressure")
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("memory_pressure failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Missing fields stay missing; we do not fabricate 0 (F04). If any of
-    // the fields used in the used/available formula is absent we return an
-    // error rather than a misleading partial sum.
-    let pages = |key: &str| -> Result<u64, String> {
-        parse::parse_labeled_number(&stdout, key)
-            .ok_or_else(|| format!("memory_pressure missing '{}'", key))
-    };
-
-    let free = pages("Pages free:")? * page_size;
-    let active = pages("Pages active:")? * page_size;
-    let inactive = pages("Pages inactive:")? * page_size;
-    let wired = pages("Pages wired down:")? * page_size;
-    let compressor = pages("Pages used by compressor:")? * page_size;
-    let speculative = pages("Pages speculative:")? * page_size;
-    let purgeable = pages("Pages purgeable:")? * page_size;
-
-    let used_bytes = active + wired + compressor;
-    let available_bytes = free + inactive + speculative + purgeable;
-    let used_percent = (used_bytes as f32 / total_bytes as f32) * 100.0;
-
-    Ok(MemoryInfo {
-        total_bytes,
-        used_bytes,
-        available_bytes,
-        used_percent,
-    })
-}
-
-fn get_gpu_info() -> Result<GpuInfo, String> {
-    // Get GPU name
-    let output = Command::new("system_profiler")
-        .args(&["SPDisplaysDataType", "-json"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let name = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
-        json["SPDisplaysDataType"][0]["_name"]
-            .as_str()
-            .unwrap_or("Unknown")
-            .to_string()
-    } else {
-        "Unknown".to_string()
-    };
-
-    // Get GPU utilization and memory from ioreg. Exact key matching so
-    // "In use system memory (driver)" never satisfies "In use system
-    // memory" (F03). Missing keys are an error, not 0 (F04).
-    let output = Command::new("ioreg")
-        .args(&["-l", "-w", "0"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("ioreg failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let stats_start = stdout
-        .find("\"PerformanceStatistics\" = {")
-        .ok_or("no PerformanceStatistics block")?;
-    let stats_end = stdout[stats_start..]
-        .find('}')
-        .map(|e| stats_start + e)
-        .ok_or("unterminated PerformanceStatistics block")?;
-    let stats_str = &stdout[stats_start..=stats_end];
-
-    let utilization = parse::parse_ioreg_stat(stats_str, "Device Utilization %")
-        .ok_or("missing Device Utilization %")? as f32;
-    let memory_used_bytes = parse::parse_ioreg_stat(stats_str, "In use system memory")
-        .ok_or("missing In use system memory")?;
-    let memory_allocated_bytes = parse::parse_ioreg_stat(stats_str, "Alloc system memory")
-        .ok_or("missing Alloc system memory")?;
-
-    Ok(GpuInfo {
-        name,
-        utilization,
-        memory_used_bytes,
-        memory_allocated_bytes,
-    })
-}
-
-fn get_disk_info() -> Result<Vec<DiskInfo>, String> {
-    let output = Command::new("diskutil")
-        .args(&["list", "-plist", "physical"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut disks = Vec::new();
-
-    if let Ok(plist) = plist::from_bytes::<plist::Value>(stdout.as_bytes()) {
-        if let Some(dict) = plist.as_dictionary() {
-            if let Some(array) = dict.get("AllDisksAndPartitions").and_then(|v| v.as_array()) {
-                for item in array {
-                    if let Some(dev_dict) = item.as_dictionary() {
-                        if let Some(dev_id) = dev_dict.get("DeviceIdentifier").and_then(|v| v.as_string()) {
-                            // Get detailed info for each disk
-                            if let Ok(info_output) = Command::new("diskutil")
-                                .args(&["info", "-plist", dev_id])
-                                .output()
-                            {
-                                let info_stdout = String::from_utf8_lossy(&info_output.stdout);
-                                if let Ok(info_plist) = plist::from_bytes::<plist::Value>(info_stdout.as_bytes()) {
-                                    if let Some(info_dict) = info_plist.as_dictionary() {
-                                        let temperature_celsius = info_dict.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
-                                            .and_then(|v| v.as_dictionary())
-                                            .and_then(|dict| dict.get("TEMPERATURE"))
-                                            .and_then(|v| v.as_unsigned_integer())
-                                            .and_then(|k| {
-                                                // Field name explicitly says values may vary and are
-                                                // not guaranteed. Reject implausible raw Kelvin before
-                                                // converting, so a sentinel/0 never becomes a bogus
-                                                // -273°C or a wildly wrong reading (F18).
-                                                let c = k as f32 - 273.15;
-                                                if (0.0..=150.0).contains(&c) { Some(c) } else { None }
-                                            });
-
-                                        let power_on_hours = info_dict.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
-                                            .and_then(|v| v.as_dictionary())
-                                            .and_then(|dict| dict.get("POWER_ON_HOURS_0"))
-                                            .and_then(|v| v.as_unsigned_integer());
-
-                                        disks.push(DiskInfo {
-                                            device: dev_id.to_string(),
-                                            name: info_dict.get("MediaName")
-                                                .and_then(|v| v.as_string())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                            size_bytes: info_dict.get("TotalSize")
-                                                .and_then(|v| v.as_unsigned_integer())
-                                                .unwrap_or(0),
-                                            smart_status: info_dict.get("SMARTStatus")
-                                                .and_then(|v| v.as_string())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                            temperature_celsius,
-                                            power_on_hours,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(disks)
-}
-
-fn get_disk_throughput(physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {
-    if physical_devices.is_empty() {
-        return Ok(Vec::new());
-    }
-    // Explicitly name the physical disks we already enumerated, instead of
-    // relying on iostat's default device set which can miss external SSDs
-    // and include non-physical synthesized devices (F05).
-    let mut args: Vec<String> = vec!["-d".into(), "-c".into(), "2".into(), "-w".into(), "1".into()];
-    for dev in physical_devices {
-        args.push(dev.clone());
-    }
-    let output = Command::new("iostat")
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(format!("iostat exited with {}", output.status));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().collect();
-    let mut throughputs = Vec::new();
-
-    if lines.len() >= 4 {
-        let disk_names: Vec<&str> = lines[0].split_whitespace().collect();
-        let data_line: Vec<&str> = lines[3].split_whitespace().collect();
-
-        for (i, disk_name) in disk_names.iter().enumerate() {
-            let base_idx = i * 3;
-            if base_idx + 2 < data_line.len() {
-                if let Ok(mb_s) = data_line[base_idx + 2].parse::<f32>() {
-                    throughputs.push(DiskThroughput {
-                        device: disk_name.to_string(),
-                        mb_per_sec: mb_s,
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(throughputs)
+    sampler::latest_snapshot()
+        .ok_or_else(|| "collector is still warming up".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -506,7 +149,14 @@ pub fn run() {
         })
         .build(app)?;
 
-      // Start background task for cleanup
+      // Independent Rust scheduler: samples hardware on a cadence even when
+      // the WebView is hidden/throttled, and is the only writer of history.
+      tauri::async_runtime::spawn(async {
+        sampler::run_scheduler().await;
+      });
+
+      // Retention cleanup still runs hourly, but (post-S0) only deletes raw
+      // samples older than the full 7-day window, never 1h.
       tauri::async_runtime::spawn(async {
         loop {
           tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
@@ -517,10 +167,23 @@ pub fn run() {
       Ok(())
     })
     .on_window_event(|window, event| {
-      if let WindowEvent::CloseRequested { api, .. } = event {
-        // Hide window instead of closing
-        window.hide().unwrap();
-        api.prevent_close();
+      match event {
+        WindowEvent::CloseRequested { api, .. } => {
+          // Hide window instead of closing; sampling continues in background.
+          window.hide().unwrap();
+          sampler::set_window_visible(false);
+          api.prevent_close();
+        }
+        WindowEvent::Focused(true) => {
+          sampler::set_window_visible(true);
+        }
+        WindowEvent::Focused(false) => {
+          // Only drop to background cadence if the window is also hidden.
+          if !window.is_visible().unwrap_or(true) {
+            sampler::set_window_visible(false);
+          }
+        }
+        _ => {}
       }
     })
     .invoke_handler(tauri::generate_handler![get_system_info, get_processes, get_history])

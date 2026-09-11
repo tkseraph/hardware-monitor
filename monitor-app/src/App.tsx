@@ -55,6 +55,8 @@ interface SystemInfo {
   gpu: GpuInfo;
   disks: DiskInfo[];
   disk_throughput: DiskThroughput[];
+  /** Unix seconds when the snapshot was sampled by the Rust scheduler. */
+  observed_at: number;
 }
 
 type Page = "overview" | "cpu" | "memory" | "gpu" | "disk" | "processes" | "settings";

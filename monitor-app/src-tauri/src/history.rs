@@ -128,12 +128,9 @@ pub fn init_db(app_data_dir: PathBuf) -> SqlResult<()> {
     Ok(())
 }
 
-pub fn record_sample(metric_id: &str, object_id: &str, value: f64, unit: &str) -> SqlResult<()> {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
+/// Record a sample stamped with the moment the source observed it, rather
+/// than the moment the row was written (F11).
+pub fn record_sample_at(metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64) -> SqlResult<()> {
     if let Some(ref db) = *DB.lock().unwrap() {
         db.insert_sample(metric_id, object_id, value, unit, timestamp)?;
     }
