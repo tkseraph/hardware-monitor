@@ -2,7 +2,7 @@
 
 长期目标是支持 macOS 与 Windows；**当前计划先完成用户本机 Apple M4 Mac，Mac 全部跑通并通过整体验收后，再由用户决定是否启动 Windows 扩展。**
 
-**当前状态：可运行的 Mac 原型，整体验收未通过。** 已存在 Tauri/React/Rust 应用代码（[monitor-app](monitor-app/)），能采集 CPU/内存/GPU/磁盘的部分真实数据并展示，但 2026-09-11 全面代码审查发现 27 项问题（含 1 项 P0 数据丢失），详见 [审查报告与整改计划](docs/reviews/2026-09-11-code-review.md)。当前正按 S0→S11 分步整改；在整改完成前，不应将本原型称为 M0～M4 验收完成。
+**当前状态：已完成 S0–S11 整改的可运行 Mac 应用，部分验收通过。** 应用代码在 [monitor-app](monitor-app/)，能采集 CPU/内存/GPU/磁盘/进程的真实数据并提供 7 天分层历史。2026-09-11 全面审查发现的 27 项问题已按 [整改计划](docs/reviews/2026-09-11-code-review.md) 逐阶段修复；实际验收结果（含仍待实测项）见 [整改验收记录](docs/remediation-acceptance.md)。
 
 ## 文档入口
 

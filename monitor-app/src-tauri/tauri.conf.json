@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "monitor",
   "version": "0.1.0",
-  "identifier": "com.monitor.app",
+  "identifier": "com.monitor.hardware",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -26,6 +26,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
