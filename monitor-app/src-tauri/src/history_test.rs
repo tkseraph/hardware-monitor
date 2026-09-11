@@ -1,123 +1,127 @@
-//! Contract tests for the tiered history store.
-//!
-//! These tests define the behavior S4 must implement. They run against an
-//! in-memory SQLite database so they never touch real user data. Several
-//! are expected to FAIL against the current implementation (red-first):
-//! that is the point — they pin down F01/F07/F11 before we fix them.
+//! Contract tests for tiered history (S4). Run against in-memory SQLite;
+//! never touches real user data. These pin F01/F07/F11 acceptance.
 
-use rusqlite::Connection;
+use crate::history::HistoryDb;
 
-/// Build the schema exactly as the current history.rs does.
-fn setup_schema(conn: &Connection) {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS metric_samples (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp INTEGER NOT NULL,
-            metric_id TEXT NOT NULL,
-            object_id TEXT NOT NULL,
-            value REAL NOT NULL,
-            unit TEXT NOT NULL,
-            created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        );
-        CREATE TABLE IF NOT EXISTS metric_buckets_10s (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bucket_start INTEGER NOT NULL,
-            metric_id TEXT NOT NULL,
-            object_id TEXT NOT NULL,
-            avg_value REAL NOT NULL,
-            min_value REAL NOT NULL,
-            max_value REAL NOT NULL,
-            sample_count INTEGER NOT NULL,
-            coverage_ms INTEGER NOT NULL,
-            unit TEXT NOT NULL,
-            created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        );
-        CREATE TABLE IF NOT EXISTS metric_buckets_60s (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bucket_start INTEGER NOT NULL,
-            metric_id TEXT NOT NULL,
-            object_id TEXT NOT NULL,
-            avg_value REAL NOT NULL,
-            min_value REAL NOT NULL,
-            max_value REAL NOT NULL,
-            sample_count INTEGER NOT NULL,
-            coverage_ms INTEGER NOT NULL,
-            unit TEXT NOT NULL,
-            created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        );
-        ",
-    )
-    .unwrap();
+/// Insert a raw sample at a specific timestamp.
+fn ins(db: &HistoryDb, ts: i64, metric: &str, obj: &str, val: f64) {
+    db.insert_sample_at(metric, obj, val, "%", ts).unwrap();
 }
 
-fn insert(conn: &Connection, ts: i64, metric: &str, obj: &str, val: f64) {
-    conn.execute(
-        "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit) VALUES (?1,?2,?3,?4,?5)",
-        (ts, metric, obj, val, "%"),
-    )
-    .unwrap();
+fn count(db: &HistoryDb, sql: &str) -> i64 {
+    db.count_for_test(sql)
 }
 
-fn count(conn: &Connection, table: &str) -> i64 {
-    conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0))
-        .unwrap()
-}
-
-/// F01 acceptance: after aggregation+retention runs, data older than 1h
-/// must still exist in aggregate form. This is a design contract test that
-/// documents what S4 must build; it is marked #[ignore] until then so the
-/// suite stays green while the contract is recorded.
 #[test]
-#[ignore = "S4 not yet implemented: aggregation does not exist"]
-fn old_data_survives_as_aggregates() {
-    let conn = Connection::open_in_memory().unwrap();
-    setup_schema(&conn);
-    let now = 1_800_000_000i64;
+fn schema_has_samples_and_unified_buckets() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM sqlite_master WHERE name='metric_samples'"), 1);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM sqlite_master WHERE name='metric_buckets'"), 1);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM sqlite_master WHERE name='schema_version'"), 1);
+}
+
+/// F01 core: after aggregation, raw rows older than 1h must be represented
+/// in 10s buckets before they are deleted. Sample count must be conserved.
+/// Rows younger than 1h stay raw (still within the raw tier).
+#[test]
+fn aggregation_conserves_samples_before_raw_deletion() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
     // 2h of per-second samples.
+    let start = now - 7200;
     for i in 0..7200 {
-        insert(&conn, now - 7200 + i, "cpu.total_usage", "system", (i % 100) as f64);
+        ins(&db, start + i, "cpu.total_usage", "system", (i % 100) as f64);
     }
-    // After aggregation, raw rows older than 1h may be gone, but 10s
-    // buckets covering that window must exist with correct sample counts.
-    let bucket_rows = count(&conn, "metric_buckets_10s");
-    assert!(
-        bucket_rows > 0,
-        "aggregation must produce 10s buckets before raw deletion"
+    let report = db.aggregate_and_prune_at(now).unwrap();
+
+    // Samples in [now-3600, now) are still within raw TTL: 3600 remain raw.
+    let raw_left = count(&db, "SELECT COUNT(*) FROM metric_samples");
+    assert_eq!(raw_left, 3600, "recent hour stays raw");
+
+    // The older hour (3600 samples) was aggregated into 10s buckets first.
+    assert!(report.buckets_10s_written > 0);
+    assert_eq!(report.raw_deleted, 3600, "exactly the covered hour was deleted");
+
+    // No sample was lost: raw(3600 recent) + bucketed(3600 old) = 7200.
+    let bucketed: i64 = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(bucketed, 3600, "older hour conserved in 10s buckets");
+    assert_eq!(raw_left + bucketed, 7200, "total samples conserved");
+
+    let b10 = count(&db, "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(b10, 360, "3600s / 10s = 360 buckets for the aggregated hour");
+}
+
+/// Buckets older than 24h roll up into 60s buckets with weighted averages,
+/// and the 10s sources are removed only after coverage exists.
+#[test]
+fn ten_second_buckets_rollup_to_sixty() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    // 48h of per-second samples → after aggregation these are >24h old, so
+    // they should end up as 60s buckets, not 10s.
+    let start = now - 172_800;
+    for i in 0..3600 {
+        ins(&db, start + i, "disk.throughput", "disk0", 100.0);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+
+    let b60_count: i64 = count(&db, "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs=60");
+    assert_eq!(b60_count, 60, "3600s / 60s = 60 buckets");
+
+    // 10s buckets for that window must be gone (rolled up).
+    let b10_left = count(
+        &db,
+        "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs=10 AND metric_id='disk.throughput'",
     );
-    let total_samples: i64 = conn
-        .query_row(
-            "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets_10s",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(total_samples, 7200, "aggregation must conserve sample count");
+    assert_eq!(b10_left, 0);
+
+    // Weighted average of constant 100.0 must be 100.0.
+    let avg: f64 = db.avg_for_test(
+        "SELECT AVG(avg_value) FROM metric_buckets WHERE granularity_secs=60",
+    );
+    assert!((avg - 100.0).abs() < 1e-6);
 }
 
-/// Bucket coverage must not claim a full window when only some samples
-/// exist (gap honesty). Ignored until S4.
+/// Aggregation must be idempotent: running it twice does not double-count.
 #[test]
-#[ignore = "S4 not yet implemented"]
-fn sparse_bucket_reports_partial_coverage() {
-    let conn = Connection::open_in_memory().unwrap();
-    setup_schema(&conn);
-    // 3 samples inside a 10s bucket window: coverage must be ~3s, not 10s.
-    // This will be asserted against the real aggregation API in S4.
-}
-
-#[test]
-fn schema_has_all_three_tiers() {
-    let conn = Connection::open_in_memory().unwrap();
-    setup_schema(&conn);
-    for t in ["metric_samples", "metric_buckets_10s", "metric_buckets_60s"] {
-        let n: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                [t],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(n, 1, "table {} must exist", t);
+fn aggregation_is_idempotent() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let start = now - 7200;
+    for i in 0..600 {
+        ins(&db, start + i, "memory.used_percent", "system", 50.0);
     }
+    db.aggregate_and_prune_at(now).unwrap();
+    let first = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    db.aggregate_and_prune_at(now).unwrap();
+    let second = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(first, second, "re-running aggregation must not double-count");
+}
+
+/// Range query returns raw points for the recent window and does not
+/// fabricate points where there are gaps.
+#[test]
+fn query_returns_only_real_points() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    // Three recent raw samples with a gap.
+    ins(&db, now - 100, "cpu.total_usage", "system", 10.0);
+    ins(&db, now - 50, "cpu.total_usage", "system", 20.0);
+    ins(&db, now - 10, "cpu.total_usage", "system", 30.0);
+    let pts = db.query_range_at("cpu.total_usage", "system", now - 200, now, 2000, now).unwrap();
+    assert_eq!(pts.len(), 3, "no fabricated points for gaps");
+    assert_eq!(pts[0], (now - 100, 10.0));
+    assert_eq!(pts[2], (now - 10, 30.0));
+}
+
+/// max_points caps the result by uniform stride downsampling.
+#[test]
+fn query_respects_max_points() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    for i in 0..100 {
+        ins(&db, now - 100 + i, "cpu.total_usage", "system", i as f64);
+    }
+    let pts = db.query_range_at("cpu.total_usage", "system", now - 100, now, 10, now).unwrap();
+    assert!(pts.len() <= 10, "got {} points, cap was 10", pts.len());
 }

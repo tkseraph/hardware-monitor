@@ -64,28 +64,8 @@ async fn get_history(metric_id: String, object_id: String, duration_secs: i64) -
     let q = query::validate_query(&metric_id, &object_id, duration_secs, now)
         .map_err(|e| format!("invalid history query: {:?}", e))?;
 
-    let db_guard = history::DB.lock().map_err(|e| e.to_string())?;
-    if let Some(ref db) = *db_guard {
-        let mut stmt = db.conn.prepare(
-            "SELECT timestamp, value FROM metric_samples
-             WHERE metric_id = ?1 AND object_id = ?2 AND timestamp >= ?3
-             ORDER BY timestamp ASC"
-        ).map_err(|e| e.to_string())?;
-
-        let rows = stmt.query_map([&q.metric_id, &q.object_id, &q.start_secs.to_string()], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-        }).map_err(|e| e.to_string())?;
-
-        let mut data = Vec::new();
-        for row in rows {
-            if let Ok((ts, val)) = row {
-                data.push((ts, val));
-            }
-        }
-        Ok(data)
-    } else {
-        Err("Database not initialized".to_string())
-    }
+    history::query_range(&q.metric_id, &q.object_id, q.start_secs, q.end_secs, q.max_points)
+        .map_err(|e| e.to_string())
 }
 
 /// IPC returns the scheduler's cached snapshot. It never triggers a
@@ -155,12 +135,12 @@ pub fn run() {
         sampler::run_scheduler().await;
       });
 
-      // Retention cleanup still runs hourly, but (post-S0) only deletes raw
-      // samples older than the full 7-day window, never 1h.
+      // Aggregation + retention pass every 60s. Aggregation into buckets is
+      // verified inside a transaction before any source row is deleted (F01).
       tauri::async_runtime::spawn(async {
         loop {
-          tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-          let _ = history::cleanup_old_data();
+          tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+          let _ = history::aggregate_and_prune();
         }
       });
 
