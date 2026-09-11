@@ -49,12 +49,40 @@ interface ProcessInfo {
   cpu_usage: number;
 }
 
+interface VolumeInfo {
+  id: string;
+  name: string;
+  role: string;
+  capacity_consumed: number | null;
+}
+
+interface ContainerInfo {
+  container_ref: string;
+  physical_store: string | null;
+  capacity_ceiling: number | null;
+  capacity_free: number | null;
+  capacity_in_use: number | null;
+  volumes: VolumeInfo[];
+}
+
+interface PhysicalDisk {
+  device: string;
+  name: string;
+  size_bytes: number;
+  smart_status: string;
+  temperature_celsius: number | null;
+  power_on_hours: number | null;
+  containers: ContainerInfo[];
+}
+
 interface SystemInfo {
   cpu: CpuInfo;
   memory: MemoryInfo;
   gpu: GpuInfo;
   disks: DiskInfo[];
   disk_throughput: DiskThroughput[];
+  /** Full physical-disk → container → volume topology. */
+  storage: PhysicalDisk[];
   /** Unix seconds when the snapshot was sampled by the Rust scheduler. */
   observed_at: number;
 }

@@ -6,6 +6,7 @@
 //! and a busy page cannot distort CPU differential windows (F08, F10).
 
 use crate::history;
+use crate::storage;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,6 +67,8 @@ pub struct SystemInfo {
     pub gpu: GpuInfo,
     pub disks: Vec<DiskInfo>,
     pub disk_throughput: Vec<DiskThroughput>,
+    /// Full physical-disk → container → volume topology (S5).
+    pub storage: Vec<storage::PhysicalDisk>,
     /// Unix seconds when this snapshot was sampled — not when it was read.
     pub observed_at: i64,
 }
@@ -136,7 +139,17 @@ impl Sampler {
 
         let memory = sample_memory()?;
         let gpu = sample_gpu()?;
-        let disks = sample_disks()?;
+        // Build the storage topology once, then derive the flat disk list
+        // and throughput device set from it so they can never disagree (F05).
+        let storage = storage::build_topology().unwrap_or_default();
+        let disks: Vec<DiskInfo> = storage.iter().map(|d| DiskInfo {
+            device: d.device.clone(),
+            name: d.name.clone(),
+            size_bytes: d.size_bytes,
+            smart_status: d.smart_status.clone(),
+            temperature_celsius: d.temperature_celsius,
+            power_on_hours: d.power_on_hours,
+        }).collect();
         let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
         let disk_throughput = sample_disk_throughput(&devices)?;
 
@@ -151,6 +164,7 @@ impl Sampler {
             gpu,
             disks,
             disk_throughput,
+            storage,
             observed_at,
         })
     }
@@ -262,71 +276,6 @@ fn sample_gpu() -> Result<GpuInfo, String> {
         memory_used_bytes,
         memory_allocated_bytes,
     })
-}
-
-fn sample_disks() -> Result<Vec<DiskInfo>, String> {
-    let output = Command::new("diskutil")
-        .args(["list", "-plist", "physical"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut disks = Vec::new();
-
-    if let Ok(plist) = plist::from_bytes::<plist::Value>(stdout.as_bytes()) {
-        if let Some(dict) = plist.as_dictionary() {
-            if let Some(array) = dict.get("AllDisksAndPartitions").and_then(|v| v.as_array()) {
-                for item in array {
-                    if let Some(dev_dict) = item.as_dictionary() {
-                        if let Some(dev_id) = dev_dict.get("DeviceIdentifier").and_then(|v| v.as_string()) {
-                            if let Ok(info_output) = Command::new("diskutil")
-                                .args(["info", "-plist", dev_id])
-                                .output()
-                            {
-                                let info_stdout = String::from_utf8_lossy(&info_output.stdout);
-                                if let Ok(info_plist) = plist::from_bytes::<plist::Value>(info_stdout.as_bytes()) {
-                                    if let Some(info_dict) = info_plist.as_dictionary() {
-                                        let temperature_celsius = info_dict.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
-                                            .and_then(|v| v.as_dictionary())
-                                            .and_then(|dict| dict.get("TEMPERATURE"))
-                                            .and_then(|v| v.as_unsigned_integer())
-                                            .and_then(|k| {
-                                                let c = k as f32 - 273.15;
-                                                if (0.0..=150.0).contains(&c) { Some(c) } else { None }
-                                            });
-
-                                        let power_on_hours = info_dict.get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed")
-                                            .and_then(|v| v.as_dictionary())
-                                            .and_then(|dict| dict.get("POWER_ON_HOURS_0"))
-                                            .and_then(|v| v.as_unsigned_integer());
-
-                                        disks.push(DiskInfo {
-                                            device: dev_id.to_string(),
-                                            name: info_dict.get("MediaName")
-                                                .and_then(|v| v.as_string())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                            size_bytes: info_dict.get("TotalSize")
-                                                .and_then(|v| v.as_unsigned_integer())
-                                                .unwrap_or(0),
-                                            smart_status: info_dict.get("SMARTStatus")
-                                                .and_then(|v| v.as_string())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                            temperature_celsius,
-                                            power_on_hours,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(disks)
 }
 
 fn sample_disk_throughput(physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {

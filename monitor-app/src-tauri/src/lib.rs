@@ -9,6 +9,7 @@ mod history;
 mod parse;
 mod query;
 mod sampler;
+mod storage;
 
 #[cfg(test)]
 mod history_test;
