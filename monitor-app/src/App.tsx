@@ -390,6 +390,42 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
   );
 }
 
+// Per-disk temperature sparkline for the overview storage row. Returns
+// null when there is no history (or the fetch fails) so no empty frame
+// is rendered — honest absence, never a fabricated zero.
+export function TempSparkline({ device }: { device: string }) {
+  const [history, setHistory] = useState<[number, number][]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchHistory = async () => {
+      try {
+        const data = await invoke<[number, number][]>("get_history", {
+          metricId: "disk.temperature",
+          objectId: device,
+          durationSecs: 3600,
+        });
+        if (!cancelled) setHistory(data);
+      } catch (err) {
+        console.error("Failed to fetch disk temperature history:", err);
+      }
+    };
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [device]);
+
+  if (history.length === 0) return null;
+  return (
+    <div className="chart--mini">
+      <Chart history={history} label={`temp-${device}`} unit="°C" gap_secs={10} />
+    </div>
+  );
+}
+
 function CpuPage({ cpu }: { cpu: CpuInfo }) {
   const t = useText();
   const [history, setHistory] = useState<[number, number][]>([]);
