@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
-const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Active I/O:": "有吞吐的设备", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Throughput:": "合计吞吐", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。"};
+const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Active I/O:": "有吞吐的设备", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。"};
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
 interface CpuInfo {
@@ -274,18 +274,66 @@ function OverviewPage({ systemInfo }: { systemInfo: SystemInfo }) {
   );
 }
 
-function Chart({ history, label }: { history: [number, number][]; label: string }) {
+interface ChartProps {
+  history: [number, number][];
+  label: string;
+  /** Value unit: "%" (0-100 fixed axis), "MB/s" (dynamic axis), etc. */
+  unit?: "%" | "MB/s" | "°C";
+  /** Gap in seconds beyond which the line breaks instead of interpolating. */
+  gap_secs?: number;
+}
+
+function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
   if (history.length === 0) return null;
-  const points = history.map(([_ts, val], idx) => {
-    const x = history.length === 1 ? 0 : (idx / (history.length - 1)) * 800;
-    const y = 210 - (Math.max(0, Math.min(100, val)) / 100) * 170;
-    return [x, y] as const;
-  });
-  const line = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
-  const area = `${line} L800,220 L0,220 Z`;
+
+  const W = 800;
+  const H = 220;
+  const PAD_TOP = 16;
+  const PAD_BOTTOM = 30;
+
+  // Real time axis: x is proportional to timestamp, not array index (F07).
+  const ts = history.map(([t]) => t);
+  const tMin = Math.min(...ts);
+  const tMax = Math.max(...ts);
+  const tSpan = Math.max(tMax - tMin, 1); // avoid /0 for a single instant
+
+  // Y axis: fixed 0-100 for percentages; dynamic for rates/temps (F06).
+  const vals = history.map(([, v]) => v);
+  let yMin = 0;
+  let yMax = 100;
+  if (unit !== "%") {
+    yMax = Math.max(...vals, 1);
+    // Round the top up to a tidy value for readability.
+    const mag = Math.pow(10, Math.floor(Math.log10(yMax)));
+    yMax = Math.ceil(yMax / mag) * mag;
+  }
+  const ySpan = Math.max(yMax - yMin, 1e-9);
+
+  const toX = (t: number) => ((t - tMin) / tSpan) * W;
+  const toY = (v: number) => PAD_TOP + (1 - (v - yMin) / ySpan) * (H - PAD_TOP - PAD_BOTTOM);
+
+  // Split into segments wherever the time gap exceeds the sampling cadence,
+  // so sleep / collection gaps render as breaks, not connected lines (F07).
+  const segments: [number, number][][] = [];
+  let current: [number, number][] = [];
+  for (let i = 0; i < history.length; i++) {
+    const [t, v] = history[i];
+    if (i > 0 && t - history[i - 1][0] > gap_secs) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+    }
+    current.push([t, v]);
+  }
+  if (current.length > 0) segments.push(current);
+
+  const singlePoint = history.length === 1;
+
+  const fmtVal = (v: number) =>
+    unit === "%" ? `${v.toFixed(0)}%` : unit === "MB/s" ? `${v.toFixed(0)} MB/s` : `${v.toFixed(1)}°C`;
+
   return (
-    <div className="chart">
-      <svg width="100%" height="220" viewBox="0 0 800 220" preserveAspectRatio="none">
+    <div className="chart" role="img" aria-label={`${label} history chart, ${history.length} samples`}>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <defs>
           <linearGradient id={`${label}-area`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgba(10,132,255,.28)" />
@@ -293,16 +341,34 @@ function Chart({ history, label }: { history: [number, number][]; label: string 
           </linearGradient>
         </defs>
         <g stroke="rgba(148,163,184,.18)" strokeWidth="1">
-          {[40, 80, 120, 160].map((y) => (
-            <line key={y} x1="0" y1={y} x2="800" y2={y} />
+          {[0.25, 0.5, 0.75].map((f) => (
+            <line key={f} x1="0" y1={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)} x2={W} y2={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)} />
           ))}
         </g>
-        <path d={area} fill={`url(#${label}-area)`} stroke="none" />
-        <path d={line} fill="none" stroke="#0a84ff" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {singlePoint ? (
+          // A single sample is a dot, not an area spanning the full width.
+          <circle cx={toX(ts[0])} cy={toY(vals[0])} r="4" fill="#0a84ff" />
+        ) : (
+          segments.map((seg, si) => {
+            if (seg.length === 1) {
+              return <circle key={si} cx={toX(seg[0][0])} cy={toY(seg[0][1])} r="3" fill="#0a84ff" />;
+            }
+            const line = seg.map(([t, v], i) => `${i === 0 ? "M" : "L"}${toX(t)},${toY(v)}`).join(" ");
+            const firstX = toX(seg[0][0]);
+            const lastX = toX(seg[seg.length - 1][0]);
+            const area = `${line} L${lastX},${H - PAD_BOTTOM} L${firstX},${H - PAD_BOTTOM} Z`;
+            return (
+              <g key={si}>
+                <path d={area} fill={`url(#${label}-area)`} stroke="none" />
+                <path d={line} fill="none" stroke="#0a84ff" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              </g>
+            );
+          })
+        )}
       </svg>
       <div className="chart-labels">
-        <span>0%</span>
-        <span>100%</span>
+        <span>{fmtVal(yMin)}</span>
+        <span>{fmtVal(yMax)}</span>
       </div>
     </div>
   );
@@ -500,16 +566,22 @@ function GpuPage({ gpu }: { gpu: GpuInfo }) {
 function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskThroughput[] }) {
   const t = useText();
   const [history, setHistory] = useState<[number, number][]>([]);
+  // Track which disk's throughput history is shown; default to the first.
+  const [selected, setSelected] = useState<string>("");
+
+  const activeDevice = selected || disks[0]?.device || "";
 
   useEffect(() => {
+    if (!activeDevice) return;
+    let cancelled = false;
     const fetchHistory = async () => {
       try {
         const data = await invoke<[number, number][]>("get_history", {
           metricId: "disk.throughput",
-          objectId: "disk0",
+          objectId: activeDevice, // per-selected-disk history, not always disk0 (F06)
           durationSecs: 3600,
         });
-        setHistory(data);
+        if (!cancelled) setHistory(data);
       } catch (err) {
         console.error("Failed to fetch history:", err);
       }
@@ -517,8 +589,11 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
 
     fetchHistory();
     const interval = setInterval(fetchHistory, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeDevice]);
 
   return (
     <div>
@@ -562,10 +637,25 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
         );
       })}
 
+      {disks.length > 1 && (
+        <div className="controls">
+          {disks.map((d) => (
+            <div className="sort-buttons" key={d.device}>
+              <button
+                className={activeDevice === d.device ? "active" : ""}
+                onClick={() => setSelected(d.device)}
+              >
+                {d.name || d.device}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {history.length > 0 && (
         <div className="card">
-          <h3>{t("Usage History (Last Hour)")}</h3>
-          <Chart history={history} label="disk" />
+          <h3>{t("Throughput History (Last Hour)")}{activeDevice ? ` · ${activeDevice}` : ""}</h3>
+          <Chart history={history} label="disk" unit="MB/s" gap_secs={10} />
         </div>
       )}
     </div>
