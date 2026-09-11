@@ -160,11 +160,6 @@ fn base_disk_id(device: &str) -> String {
     device.to_string()
 }
 
-/// Pub wrapper for the device-identity registry's medium fingerprint.
-pub(crate) fn base_disk_id_pub(device: &str) -> String {
-    base_disk_id(device)
-}
-
 /// Parse `diskutil list -plist physical` into disks. When `fetch_info` is true,
 /// per-disk `diskutil info` is queried for name/size/SMART; tests pass false
 /// and supply size via the fixture so no hardware is touched.

@@ -133,9 +133,20 @@ async fn get_system_status() -> Result<SystemStatus, String> {
     })
 }
 
+/// R9/A13: settings payload plus any load/validation error so the UI can show
+/// "settings file invalid, using defaults" instead of silently falling back.
+#[derive(Debug, serde::Serialize)]
+struct SettingsPayload {
+    settings: settings::Settings,
+    load_error: Option<String>,
+}
+
 #[tauri::command]
-async fn get_settings() -> Result<settings::Settings, String> {
-    Ok(settings::get())
+async fn get_settings() -> Result<SettingsPayload, String> {
+    Ok(SettingsPayload {
+        settings: settings::get(),
+        load_error: settings::last_error(),
+    })
 }
 
 #[tauri::command]
@@ -143,9 +154,11 @@ async fn set_settings(new_settings: settings::Settings) -> Result<(), String> {
     settings::set(new_settings)
 }
 
-/// Opt-in login item toggle. Returns the resulting registered state.
+/// Opt-in login item toggle. R9/A12: register and verify are separate steps.
+/// A failed verification returns "unknown" — we never substitute the user's
+/// intended state for the system's actual registered state.
 #[tauri::command]
-async fn set_launch_at_login(enable: bool, app: tauri::AppHandle) -> Result<bool, String> {
+async fn set_launch_at_login(enable: bool, app: tauri::AppHandle) -> Result<LoginItemResult, String> {
     let app_path = std::env::current_exe()
         .ok()
         .and_then(|p| {
@@ -155,14 +168,35 @@ async fn set_launch_at_login(enable: bool, app: tauri::AppHandle) -> Result<bool
         })
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .ok_or("could not resolve .app bundle path")?;
+
+    // Step 1: register/unregister. A hard failure aborts and is surfaced.
     loginitem::set_launch_at_login(enable, &app_path)?;
-    let registered = loginitem::is_registered(&app_path).unwrap_or(enable);
-    // Persist the user's intent in settings regardless of query accuracy.
-    let mut s = settings::get();
-    s.launch_at_login = registered;
-    let _ = settings::set(s);
-    let _ = app; // app handle reserved for future native registration APIs
-    Ok(registered)
+
+    // Step 2: verify against the actual system state. On query failure we
+    // report unknown rather than guessing (A12) and do NOT persist a guess.
+    match loginitem::is_registered(&app_path) {
+        Ok(registered) => {
+            // Persist the verified state so the UI reflects reality.
+            let mut s = settings::get();
+            s.launch_at_login = registered;
+            if let Err(e) = settings::set(s) {
+                return Ok(LoginItemResult { registered: Some(registered), saved: false, error: Some(e) });
+            }
+            Ok(LoginItemResult { registered: Some(registered), saved: true, error: None })
+        }
+        Err(e) => Ok(LoginItemResult { registered: None, saved: false, error: Some(format!("verify: {}", e)) }),
+    }
+    // app handle reserved for future native registration APIs
+    .map(|r| { let _ = &app; r })
+}
+
+/// Result of a login-item toggle (A12): the verified registered state (None =
+/// unknown on query failure), whether the setting was persisted, and any error.
+#[derive(Debug, serde::Serialize)]
+struct LoginItemResult {
+    registered: Option<bool>,
+    saved: bool,
+    error: Option<String>,
 }
 
 #[tauri::command]
