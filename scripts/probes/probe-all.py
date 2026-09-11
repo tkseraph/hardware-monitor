@@ -20,8 +20,39 @@ def run(cmd: List[str], timeout: int = 30) -> Dict[str, Any]:
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return {"exit_code": p.returncode, "stdout": p.stdout.strip(), "stderr": p.stderr.strip()}
-    except Exception as exc:
-        return {"exit_code": -1, "stdout": "", "stderr": str(exc)}
+    except subprocess.TimeoutExpired:
+        # R12/A14: never serialize the exception — TimeoutExpired can embed
+        # captured stdout. Return only a neutral error code.
+        return {"exit_code": -1, "stdout": "", "stderr": "timeout"}
+    except Exception:
+        return {"exit_code": -1, "stdout": "", "stderr": "spawn_error"}
+
+# ---------- 脱敏（R12/A14） ----------
+
+# Fields that must NEVER appear in a report (privacy boundary D-010).
+FORBIDDEN_KEYS = {"mount_point", "MountPoint", "serial", "SerialNumber",
+                  "uuid", "UUID", "VolumeUUID", "DiskUUID", "HardwareUUID",
+                  "command_line", "cmdline", "path_list"}
+
+_SENSITIVE_VALUE = re.compile(
+    r"(/Users/[^\s\"']+|/home/[^\s\"']+|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"
+)
+
+def sanitize(text: Any) -> str:
+    """Redact user paths and UUID-shaped tokens from a free-text field."""
+    if not isinstance(text, str):
+        text = str(text)
+    return _SENSITIVE_VALUE.sub("[redacted]", text)
+
+def scrub(obj: Any) -> Any:
+    """Recursively drop forbidden keys and redact sensitive values."""
+    if isinstance(obj, dict):
+        return {k: scrub(v) for k, v in obj.items() if k not in FORBIDDEN_KEYS}
+    if isinstance(obj, list):
+        return [scrub(v) for v in obj]
+    if isinstance(obj, str):
+        return sanitize(obj)
+    return obj
 
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -409,12 +440,18 @@ def probe_gpu() -> List[Dict[str, Any]]:
             in_use_mem = extract_num("In use system memory")
             alloc_mem = extract_num("Alloc system memory")
 
+            # A25: only mark verified when the REQUIRED field(s) are present.
+            # A PerformanceStatistics block that lacks them (e.g. an unrelated
+            # block matched first) must degrade to partial/error, not verified.
+            util_required = [device_util]
+            util_status = "verified" if all(v is not None for v in util_required) else (
+                "partial" if any(v is not None for v in [device_util, renderer_util, tiler_util]) else "error")
             probes.append({
                 "id": "gpu.utilization",
                 "category": "gpu",
                 "description": "GPU 总利用率（%）",
                 "source": "ioreg PerformanceStatistics",
-                "status": "verified",
+                "status": util_status,
                 "value": {
                     "device_utilization": device_util,
                     "renderer_utilization": renderer_util,
@@ -423,17 +460,20 @@ def probe_gpu() -> List[Dict[str, Any]]:
                 "unit": "%",
                 "sampled_at": now(),
                 "sample_window_ms": 0,
-                "confidence": "medium",
-                "notes": "ioreg 快照；Device Utilization 为综合指标",
+                "confidence": "medium" if util_status == "verified" else "low",
+                "notes": "ioreg 快照；Device Utilization 为综合指标" if util_status == "verified" else "PerformanceStatistics 缺少利用率必需字段",
                 "evidence": {"raw": stats_str[:200]},
             })
 
+            mem_required = [in_use_mem, alloc_mem]
+            mem_status = "verified" if all(v is not None for v in mem_required) else (
+                "partial" if any(v is not None for v in mem_required) else "error")
             probes.append({
                 "id": "gpu.memory",
                 "category": "gpu",
                 "description": "GPU 内存用量/占用率（统一内存架构）",
                 "source": "ioreg PerformanceStatistics",
-                "status": "verified",
+                "status": mem_status,
                 "value": {
                     "in_use_system_memory": in_use_mem,
                     "alloc_system_memory": alloc_mem,
@@ -442,8 +482,8 @@ def probe_gpu() -> List[Dict[str, Any]]:
                 "unit": "bytes",
                 "sampled_at": now(),
                 "sample_window_ms": 0,
-                "confidence": "medium",
-                "notes": "In use = 当前使用，Alloc = 驱动已分配；非全局 GPU 内存统计",
+                "confidence": "medium" if mem_status == "verified" else "low",
+                "notes": "In use = 当前使用，Alloc = 驱动已分配；非全局 GPU 内存统计" if mem_status == "verified" else "PerformanceStatistics 缺少内存必需字段",
                 "evidence": {"raw": stats_str[:200]},
             })
         else:
@@ -663,7 +703,7 @@ def probe_disks() -> List[Dict[str, Any]]:
                         "id": vol.get("DeviceIdentifier"),
                         "name": vol.get("Name"),
                         "role": vol.get("Role"),
-                        "mount_point": vol.get("MountPoint"),
+                        # R12/A14: MountPoint is a forbidden field — never collected.
                         "capacity_consumed": vol.get("CapacityInUse"),
                     })
                 containers.append({
@@ -841,8 +881,15 @@ def main():
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
     report = build_report()
+    # R12/A14: scrub the entire report before write — drop forbidden fields and
+    # redact user paths / UUIDs wherever they appear, then verify nothing
+    # forbidden survived.
+    report = scrub(report)
+    text = json.dumps(report, ensure_ascii=False, indent=2)
+    for key in FORBIDDEN_KEYS:
+        assert f'"{key}"' not in text, f"forbidden field leaked into report: {key}"
     with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+        f.write(text)
     print(f"报告已生成: {args.output}")
     print(f"状态统计: {report['summary']}")
 
