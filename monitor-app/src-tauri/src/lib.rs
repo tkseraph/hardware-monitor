@@ -2,6 +2,7 @@ use tauri::{Manager, WindowEvent};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 
+mod cmd;
 mod data_paths;
 mod history;
 mod instance;

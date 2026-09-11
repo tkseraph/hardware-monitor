@@ -5,7 +5,6 @@
 //! shared capacity to the container's resource pool exactly once (F05, F12).
 
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeInfo {
@@ -75,14 +74,8 @@ fn base_disk_id(device: &str) -> String {
 }
 
 fn enumerate_physical_disks() -> Result<Vec<PhysicalDisk>, String> {
-    let output = Command::new("diskutil")
-        .args(["list", "-plist", "physical"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("diskutil list physical failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::cmd::run("/usr/sbin/diskutil", &["list", "-plist", "physical"], crate::cmd::DEFAULT_TIMEOUT)?
+        .into_result()?;
     let mut disks = Vec::new();
 
     let plist = plist::from_bytes::<plist::Value>(stdout.as_bytes())
@@ -116,11 +109,8 @@ fn enumerate_physical_disks() -> Result<Vec<PhysicalDisk>, String> {
 
 /// (name, size_bytes, smart_status, temperature_c, power_on_hours)
 fn disk_info(dev_id: &str) -> Result<(String, u64, String, Option<f32>, Option<u64>), String> {
-    let output = Command::new("diskutil")
-        .args(["info", "-plist", dev_id])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::cmd::run("/usr/sbin/diskutil", &["info", "-plist", dev_id], crate::cmd::DEFAULT_TIMEOUT)?
+        .into_result()?;
     let plist = plist::from_bytes::<plist::Value>(stdout.as_bytes())
         .map_err(|e| e.to_string())?;
     let d = plist.as_dictionary().ok_or("no dict")?;
@@ -149,14 +139,8 @@ fn disk_info(dev_id: &str) -> Result<(String, u64, String, Option<f32>, Option<u
 }
 
 fn enumerate_apfs_containers() -> Result<Vec<ContainerInfo>, String> {
-    let output = Command::new("diskutil")
-        .args(["apfs", "list", "-plist"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("diskutil apfs list failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::cmd::run("/usr/sbin/diskutil", &["apfs", "list", "-plist"], crate::cmd::DEFAULT_TIMEOUT)?
+        .into_result()?;
     let plist = plist::from_bytes::<plist::Value>(stdout.as_bytes())
         .map_err(|e| e.to_string())?;
     let containers_arr = plist

@@ -8,7 +8,6 @@
 use crate::history;
 use crate::storage;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -75,6 +74,10 @@ pub struct Sampler {
     /// When the sampler last produced a snapshot; used to compute real
     /// differential windows instead of assuming a fixed interval.
     last_tick: Option<Instant>,
+    /// Per-device cumulative MB read from `iostat -d -I`, with the observation
+    /// time. Throughput is the delta over the real elapsed window, so the
+    /// collection pass no longer pays iostat's fixed 1s sampling delay (R5/A04).
+    disk_cumulative: std::collections::HashMap<String, (f64, Instant)>,
 }
 
 impl Sampler {
@@ -87,6 +90,7 @@ impl Sampler {
             sys,
             cpu_static: None,
             last_tick: None,
+            disk_cumulative: std::collections::HashMap::new(),
         }
     }
 
@@ -94,11 +98,9 @@ impl Sampler {
         if let Some(c) = &self.cpu_static {
             return c.clone();
         }
-        let name = Command::new("sysctl")
-            .args(["-n", "machdep.cpu.brand_string"])
-            .output()
+        let name = crate::cmd::run("/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"], crate::cmd::DEFAULT_TIMEOUT)
             .ok()
-            .filter(|o| o.status.success())
+            .filter(|o| o.status_success)
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_else(|| "Unknown".to_string());
         let physical = read_sysctl_u32("hw.physicalcpu").unwrap_or(0);
@@ -146,7 +148,7 @@ impl Sampler {
             power_on_hours: d.power_on_hours,
         }).collect();
         let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
-        let disk_throughput = sample_disk_throughput(&devices)?;
+        let disk_throughput = self.sample_disk_throughput(&devices)?;
 
         let observed_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -163,32 +165,69 @@ impl Sampler {
             observed_at,
         })
     }
+
+    /// Per-device throughput via cumulative counters (R5/A04). Reads
+    /// `iostat -d -I` (cumulative MB since boot — no 1s sampling delay), then
+    /// computes MB/s as the delta over the real elapsed window since the last
+    /// observation. The first call after start/wake establishes the baseline
+    /// and reports no rate (warm-up), so no fabricated spike is produced.
+    fn sample_disk_throughput(&mut self, physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {
+        if physical_devices.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut args: Vec<&str> = vec!["-d", "-I"];
+        for dev in physical_devices {
+            args.push(dev.as_str());
+        }
+        let out = crate::cmd::run("/usr/sbin/iostat", &args, crate::cmd::DEFAULT_TIMEOUT)?;
+        if out.timed_out {
+            return Err("iostat timed out".to_string());
+        }
+        if !out.status_success {
+            return Err("iostat exited non-zero".to_string());
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let cumulative = parse_iostat_cumulative_mb(&stdout);
+
+        let now = Instant::now();
+        let mut throughputs = Vec::new();
+        for dev in physical_devices {
+            let cur = match cumulative.get(dev.as_str()) {
+                Some(&v) => v,
+                None => continue, // device absent from iostat output — skip
+            };
+            match self.disk_cumulative.get(dev) {
+                Some(&(prev_mb, prev_at)) => {
+                    let dt = now.duration_since(prev_at).as_secs_f32();
+                    if dt > 0.0 && cur >= prev_mb {
+                        let mb_s = ((cur - prev_mb) as f32) / dt;
+                        throughputs.push(DiskThroughput { device: dev.clone(), mb_per_sec: mb_s });
+                    }
+                    // Counter went backwards (counter reset / disk re-add): drop
+                    // the stale baseline; the new value becomes the baseline.
+                }
+                None => {
+                    // First observation: baseline only, no rate this pass.
+                }
+            }
+            self.disk_cumulative.insert(dev.clone(), (cur, now));
+        }
+        Ok(throughputs)
+    }
 }
 
 fn read_sysctl_u32(key: &str) -> Option<u32> {
-    Command::new("sysctl")
-        .args(["-n", key])
-        .output()
+    crate::cmd::run("/usr/sbin/sysctl", &["-n", key], crate::cmd::DEFAULT_TIMEOUT)
         .ok()
-        .filter(|o| o.status.success())
+        .filter(|o| o.status_success)
         .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
 }
 
 fn sample_memory() -> Result<MemoryInfo, String> {
-    let total_bytes = Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .map_err(|e| e.to_string())
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .parse::<u64>()
-                    .map_err(|_| "hw.memsize not a number".to_string())
-            } else {
-                Err("sysctl hw.memsize failed".to_string())
-            }
-        })?;
+    let total_bytes = crate::cmd::run("/usr/sbin/sysctl", &["-n", "hw.memsize"], crate::cmd::DEFAULT_TIMEOUT)
+        .map_err(|e| e)?
+        .into_result()
+        .and_then(|s| s.trim().parse::<u64>().map_err(|_| "hw.memsize not a number".to_string()))?;
     if total_bytes == 0 {
         return Err("hw.memsize is zero".to_string());
     }
@@ -197,13 +236,9 @@ fn sample_memory() -> Result<MemoryInfo, String> {
         .filter(|&p| p > 0)
         .unwrap_or(16384) as u64;
 
-    let output = Command::new("memory_pressure")
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("memory_pressure failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::cmd::run("/usr/bin/memory_pressure", &[], crate::cmd::DEFAULT_TIMEOUT)
+        .map_err(|e| e)?
+        .into_result()?;
 
     let pages = |key: &str| -> Result<u64, String> {
         crate::parse::parse_labeled_number(&stdout, key)
@@ -231,23 +266,16 @@ fn sample_memory() -> Result<MemoryInfo, String> {
 }
 
 fn sample_gpu() -> Result<GpuInfo, String> {
-    let name = Command::new("system_profiler")
-        .args(["SPDisplaysDataType", "-json"])
-        .output()
+    let name = crate::cmd::run("/usr/sbin/system_profiler", &["SPDisplaysDataType", "-json"], crate::cmd::DEFAULT_TIMEOUT)
         .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| serde_json::from_str::<serde_json::Value>(&String::from_utf8_lossy(&o.stdout)).ok())
+        .and_then(|o| o.into_result().ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|j| j["SPDisplaysDataType"][0]["_name"].as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "Unknown".to_string());
 
-    let output = Command::new("ioreg")
-        .args(["-l", "-w", "0"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("ioreg failed".to_string());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::cmd::run("/usr/sbin/ioreg", &["-l", "-w", "0"], crate::cmd::DEFAULT_TIMEOUT)
+        .map_err(|e| e)?
+        .into_result()?;
 
     let stats_start = stdout
         .find("\"PerformanceStatistics\" = {")
@@ -273,44 +301,41 @@ fn sample_gpu() -> Result<GpuInfo, String> {
     })
 }
 
-fn sample_disk_throughput(physical_devices: &[String]) -> Result<Vec<DiskThroughput>, String> {
-    if physical_devices.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut args: Vec<String> = vec!["-d".into(), "-c".into(), "2".into(), "-w".into(), "1".into()];
-    for dev in physical_devices {
-        args.push(dev.clone());
-    }
-    let output = Command::new("iostat")
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(format!("iostat exited with {}", output.status));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+/// Parse `iostat -d -I` output into per-device cumulative MB. Pure function
+/// (unit-testable with fixtures; no hardware, no shell). The MB column is the
+/// cumulative total since boot, used for real differential windows.
+///
+/// Format (per device, columns KB/t, xfrs, MB):
+/// ```text
+///               disk0               disk1
+///     KB/t xfrs   MB     KB/t xfrs   MB
+///     6.89 75957 510.89  5.00 100    20.5
+/// ```
+fn parse_iostat_cumulative_mb(stdout: &str) -> std::collections::HashMap<String, f64> {
+    let mut map = std::collections::HashMap::new();
     let lines: Vec<&str> = stdout.lines().collect();
-    let mut throughputs = Vec::new();
-
-    if lines.len() >= 4 {
-        let disk_names: Vec<&str> = lines[0].split_whitespace().collect();
-        let data_line: Vec<&str> = lines[3].split_whitespace().collect();
-
-        for (i, disk_name) in disk_names.iter().enumerate() {
-            let base_idx = i * 3;
-            if base_idx + 2 < data_line.len() {
-                if let Ok(mb_s) = data_line[base_idx + 2].parse::<f32>() {
-                    throughputs.push(DiskThroughput {
-                        device: disk_name.to_string(),
-                        mb_per_sec: mb_s,
-                    });
-                }
+    if lines.len() < 3 {
+        return map;
+    }
+    // Header line 0 holds the device names (leading spaces, one per device).
+    let names: Vec<&str> = lines[0].split_whitespace().collect();
+    // The data line is the last non-empty line; each device contributes 3 cols
+    // (KB/t, xfrs, MB) — MB is at base+2.
+    let data: Option<&str> = lines.iter().rev().find(|l| !l.trim().is_empty()).copied();
+    let data = match data {
+        Some(d) => d,
+        None => return map,
+    };
+    let cols: Vec<&str> = data.split_whitespace().collect();
+    for (i, name) in names.iter().enumerate() {
+        let idx = i * 3 + 2;
+        if idx < cols.len() {
+            if let Ok(mb) = cols[idx].parse::<f64>() {
+                map.insert(name.to_string(), mb);
             }
         }
     }
-
-    Ok(throughputs)
+    map
 }
 
 /// Record one snapshot's metrics to history with the snapshot's own
@@ -366,6 +391,11 @@ pub fn latest_snapshot() -> Option<SystemInfo> {
 /// cadence based on window visibility; sampling continues regardless so
 /// history has no WebView-throttling gap (F08). Settings are re-read each
 /// cycle so changes take effect without a restart (S8).
+///
+/// R5/A04: scheduling is anchored to the next absolute deadline, not
+/// "sleep(interval) + work". A slow pass shortens the following sleep so the
+/// cadence stays close to the configured interval and slow sources never
+/// accumulate drift; an overrun simply means the next tick starts on time.
 pub async fn run_scheduler() {
     {
         let mut guard = SAMPLER.lock().expect("sampler lock poisoned");
@@ -378,31 +408,36 @@ pub async fn run_scheduler() {
         } else {
             Duration::from_millis(s.background_interval_ms)
         };
-        tokio::time::sleep(interval).await;
 
-        let snapshot = {
-            let mut guard = match SAMPLER.lock() {
-                Ok(g) => g,
-                Err(_) => continue,
-            };
-            match guard.as_mut() {
-                Some(s) => {
-                    crate::metric_status::note_attempt();
-                    match s.sample() {
-                        Ok(info) => {
-                            crate::metric_status::note_success();
-                            Some(info)
-                        }
-                        Err(e) => {
-                            crate::metric_status::note_failure();
-                            log::warn!("sample pass failed: {}", e);
-                            None
+        let tick_start = Instant::now();
+
+        // Run the sampling pass. The MutexGuard must NOT be held across an
+        // await (it is not Send), so we scope it to a plain sync block that
+        // returns the snapshot; the guard is dropped before any sleep.
+        let sampled: Option<Option<SystemInfo>> = {
+            match SAMPLER.lock() {
+                Ok(mut guard) => Some(match guard.as_mut() {
+                    Some(s) => {
+                        crate::metric_status::note_attempt();
+                        match s.sample() {
+                            Ok(info) => {
+                                crate::metric_status::note_success();
+                                Some(info)
+                            }
+                            Err(e) => {
+                                crate::metric_status::note_failure();
+                                log::warn!("sample pass failed: {}", e);
+                                None
+                            }
                         }
                     }
-                }
-                None => None,
+                    None => None,
+                }),
+                Err(_) => None, // poisoned — skip this tick (sleep below)
             }
         };
+        let lock_ok = sampled.is_some();
+        let snapshot = sampled.flatten();
 
         if let Some(info) = snapshot {
             record_snapshot(&info);
@@ -410,5 +445,45 @@ pub async fn run_scheduler() {
                 *latest = Some(info);
             }
         }
+
+        // Sleep only the remaining time until the next deadline; if the pass
+        // overran (or the lock was poisoned so we did no work), start the next
+        // tick immediately / after the plain interval respectively.
+        let elapsed = tick_start.elapsed();
+        let remaining = if !lock_ok {
+            interval
+        } else if elapsed < interval {
+            interval - elapsed
+        } else {
+            Duration::ZERO
+        };
+        if remaining > Duration::ZERO {
+            tokio::time::sleep(remaining).await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_iostat_cumulative_mb;
+
+    const TWO_DISKS: &str = "              disk0               disk1 \n    KB/t xfrs   MB     KB/t xfrs   MB \n    6.89 75957 510.89  5.00 100    20.5 \n";
+
+    #[test]
+    fn parses_cumulative_mb_per_device() {
+        let m = parse_iostat_cumulative_mb(TWO_DISKS);
+        assert_eq!(m.get("disk0"), Some(&510.89));
+        assert_eq!(m.get("disk1"), Some(&20.5));
+    }
+
+    #[test]
+    fn handles_single_disk_and_missing_columns() {
+        let one = "              disk0 \n    KB/t xfrs   MB \n    6.89 75957 510.89 \n";
+        let m = parse_iostat_cumulative_mb(one);
+        assert_eq!(m.get("disk0"), Some(&510.89));
+        assert_eq!(m.len(), 1);
+        // Empty / malformed input yields an empty map, never a panic.
+        assert!(parse_iostat_cumulative_mb("").is_empty());
+        assert!(parse_iostat_cumulative_mb("garbage\n").is_empty());
     }
 }
