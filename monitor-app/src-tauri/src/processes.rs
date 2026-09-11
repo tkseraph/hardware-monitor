@@ -28,6 +28,9 @@ pub struct ProcessInfo {
     /// exact process instance; null on first sight or after PID reuse.
     pub disk_read_bps: Option<f64>,
     pub disk_write_bps: Option<f64>,
+    /// R6/A06: false when this process's I/O counters were unreadable this
+    /// pass — disk_*_bytes are then 0 placeholders the UI must not render.
+    pub io_ok: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +39,12 @@ pub struct ProcessPage {
     /// Total number of readable processes before any filtering/limit —
     /// lets the UI say "showing N of M" honestly (F13).
     pub total_readable: usize,
+    /// R6: rows matching the active filter BEFORE pagination — the UI's real
+    /// page count. Equals total_readable when no filter is applied.
+    pub matched_total: usize,
+    /// R6: the offset/limit actually applied to `processes`.
+    pub offset: usize,
+    pub limit: usize,
     /// Unix seconds of this scan.
     pub observed_at: i64,
 }
@@ -63,6 +72,12 @@ impl ProcessCollector {
 
     /// Scan all readable processes. Sorting/filtering happen on the full set
     /// here — never truncate before the caller filters (F13).
+    ///
+    /// R6/A06: a process whose I/O counters are unreadable contributes
+    /// `disk_read_bps/writps = None` and `io_ok = false`; its cumulative
+    /// counters are NOT recorded as a fake 0 baseline, so a later successful
+    /// read never produces a spurious lifetime-to-date spike, and a persistent
+    /// failure never masquerades as "0 B/s".
     pub fn scan(&mut self) -> ProcessPage {
         self.sys.refresh_processes();
 
@@ -78,26 +93,40 @@ impl ProcessCollector {
         for (pid, process) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
             let start_marker = process.start_time();
-
-            let (read, write) = disk_io_bytes(pid_u32).unwrap_or((0, 0));
             let key = (pid_u32, start_marker);
 
-            let (read_bps, write_bps) = match self.baselines.get(&key) {
-                Some(prev) => {
-                    let dt = now.duration_since(prev.at).as_secs_f64();
-                    if dt > 0.0 && read >= prev.read && write >= prev.write {
-                        (
-                            Some((read - prev.read) as f64 / dt),
-                            Some((write - prev.write) as f64 / dt),
-                        )
-                    } else {
-                        (None, None)
-                    }
-                }
-                None => (None, None),
-            };
+            // None = unreadable this pass. Never substitute (0,0).
+            let io = disk_io_bytes(pid_u32);
 
-            seen.insert(key, IoBaseline { read, write, at: now });
+            let (read_bps, write_bps, read_bytes, write_bytes) = match io {
+                Some((read, write)) => {
+                    let rates = match self.baselines.get(&key) {
+                        Some(prev) => {
+                            let dt = now.duration_since(prev.at).as_secs_f64();
+                            if dt > 0.0 && read >= prev.read && write >= prev.write {
+                                (
+                                    Some((read - prev.read) as f64 / dt),
+                                    Some((write - prev.write) as f64 / dt),
+                                )
+                            } else {
+                                // Counter went backwards (PID reuse / counter
+                                // reset): no rate this pass; baseline resets.
+                                (None, None)
+                            }
+                        }
+                        None => (None, None), // first sight: baseline only
+                    };
+                    // Update the baseline only on a successful read.
+                    seen.insert(key, IoBaseline { read, write, at: now });
+                    (rates.0, rates.1, read, write)
+                }
+                None => {
+                    // Unreadable: keep NO baseline entry so we don't carry a
+                    // stale one forward, and report None rates + 0 counters
+                    // flagged io_ok = false (UI must not render the 0).
+                    (None, None, 0, 0)
+                }
+            };
 
             processes.push(ProcessInfo {
                 pid: pid_u32,
@@ -105,20 +134,24 @@ impl ProcessCollector {
                 name: process.name().to_string(),
                 memory_bytes: process.memory(),
                 cpu_usage: process.cpu_usage(),
-                disk_read_bytes: read,
-                disk_write_bytes: write,
+                disk_read_bytes: read_bytes,
+                disk_write_bytes: write_bytes,
                 disk_read_bps: read_bps,
                 disk_write_bps: write_bps,
+                io_ok: io.is_some(),
             });
         }
 
-        // Drop baselines for processes that no longer exist.
+        // Drop baselines for processes that no longer exist OR were unreadable.
         self.baselines = seen;
 
         let total_readable = processes.len();
         ProcessPage {
             processes,
             total_readable,
+            matched_total: total_readable,
+            offset: 0,
+            limit: usize::MAX,
             observed_at,
         }
     }

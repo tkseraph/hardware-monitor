@@ -4,7 +4,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
-const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度"};
+const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
 Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。"});
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
@@ -54,11 +54,17 @@ interface ProcessInfo {
   disk_write_bytes: number;
   disk_read_bps: number | null;
   disk_write_bps: number | null;
+  /** R6: false when I/O counters were unreadable; do not render the 0s. */
+  io_ok: boolean;
 }
 
 interface ProcessPage {
   processes: ProcessInfo[];
   total_readable: number;
+  /** R6: rows matching the filter before pagination — real page count. */
+  matched_total: number;
+  offset: number;
+  limit: number;
   observed_at: number;
 }
 
@@ -791,6 +797,9 @@ export function ProcessesPage() {
   const [page, setPage] = useState<ProcessPage | null>(null);
   const [sortBy, setSortBy] = useState<ProcessSortKey>("memory");
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<ProcessInfo | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -813,18 +822,24 @@ export function ProcessesPage() {
     } finally { setEnding(false); setConfirming(false); }
   };
 
+  // R6: debounce the search so each keystroke does not trigger a re-scan.
+  useEffect(() => {
+    const h = setTimeout(() => { setDebouncedSearch(searchTerm); setPageIndex(0); }, 300);
+    return () => clearTimeout(h);
+  }, [searchTerm]);
+
+  // Reset to page 0 whenever sort or page size changes.
+  useEffect(() => { setPageIndex(0); }, [sortBy, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
     const fetchProcesses = async () => {
       try {
-        // Backend filters + sorts + paginates over the FULL readable set,
-        // so search and CPU/disk sort are not limited to a memory top-50.
         const result = await invoke<ProcessPage>("get_processes", {
-          search: searchTerm || null,
+          search: debouncedSearch || null,
           sort: sortBy,
-          offset: 0,
-          limit: 50,
+          offset: pageIndex * pageSize,
+          limit: pageSize,
         });
         if (!cancelled) {
           setPage(result);
@@ -844,11 +859,14 @@ export function ProcessesPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [searchTerm, sortBy]);
+  }, [debouncedSearch, sortBy, pageIndex, pageSize]);
 
   const processes = page?.processes ?? [];
-  const fmtRate = (bps: number | null) =>
-    bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
+  // R6: unknown rate (None) renders "—"; a never-zero fake is never shown.
+  const fmtRate = (proc: ProcessInfo, bps: number | null) =>
+    !proc.io_ok ? t("Unreadable") : bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
+  const matched = page?.matched_total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(matched / pageSize));
 
   return (
     <div>
@@ -879,10 +897,20 @@ export function ProcessesPage() {
         </div>
         {page && (
           <p className="note">
-            {t("Showing")} {processes.length} {t("of")} {page.total_readable} {t("readable processes (system-wide disk I/O)")}
+            {t("Showing")} {processes.length} {t("of")} {matched} {t("matching")} · {page.total_readable} {t("readable processes (system-wide disk I/O)")}
           </p>
         )}
         {loadError && <p className="note">{t("Failed to load processes")}</p>}
+        <div className="pagination-controls">
+          <button disabled={pageIndex === 0} onClick={() => setPageIndex(0)}>«</button>
+          <button disabled={pageIndex === 0} onClick={() => setPageIndex(i => Math.max(0, i - 1))}>{t("Prev")}</button>
+          <span>{t("Page")} {matched === 0 ? 0 : pageIndex + 1} {t("of")} {matched === 0 ? 0 : totalPages}</span>
+          <button disabled={pageIndex + 1 >= totalPages} onClick={() => setPageIndex(i => Math.min(totalPages - 1, i + 1))}>{t("Next")}</button>
+          <button disabled={pageIndex + 1 >= totalPages} onClick={() => setPageIndex(totalPages - 1)}>»</button>
+          <select aria-label={t("Rows per page")} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
+            {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n} / {t("page")}</option>)}
+          </select>
+        </div>
         <div className="process-actions">
           <button className="danger-button" disabled={!selected || ending || loadError} onClick={() => setConfirming(true)}>{t("End process")}</button>
           <span>{selected ? `${selected.name} · PID ${selected.pid}` : t("Select a process")}</span>
@@ -916,8 +944,8 @@ export function ProcessesPage() {
                 <td>{proc.name}</td>
                 <td>{formatBytes(proc.memory_bytes)}</td>
                 <td>{proc.cpu_usage.toFixed(1)}%</td>
-                <td>{fmtRate(proc.disk_read_bps)}</td>
-                <td>{fmtRate(proc.disk_write_bps)}</td>
+                <td>{fmtRate(proc, proc.disk_read_bps)}</td>
+                <td>{fmtRate(proc, proc.disk_write_bps)}</td>
               </tr>
             ))}
           </tbody>

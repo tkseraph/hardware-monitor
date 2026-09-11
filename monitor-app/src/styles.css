@@ -3,3 +3,26 @@
 @media(max-width:1000px){.sidebar{width:210px;padding:24px 14px}.content{padding:0 22px 28px}.empty-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-heading h2{font-size:24px}}
 @media(max-width:640px){.app{display:block}.sidebar{position:static;width:auto;height:auto;padding:16px;border-right:0;border-bottom:1px solid rgba(0,0,0,.06)}.brand{padding:0 4px 14px}.sidebar ul{display:flex;overflow-x:auto}.sidebar li{flex-shrink:0}.sidebar button{padding:9px 11px;font-size:12px;gap:7px}.nav-caption,.sidebar-footer{display:none}.content{padding:0 16px 24px}.topbar{height:60px}.page-heading{padding:24px 0;align-items:flex-start}.page-heading h2{font-size:21px}.status-pill{font-size:10px}.grid{grid-template-columns:1fr}.storage-usage{min-width:120px}.storage-row-head{flex-wrap:wrap}.empty-panel{padding:24px 16px}.card{padding:18px}.empty-grid button{padding:15px}.process-table{table-layout:fixed}.controls{flex-direction:column}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Explicit foreground/background pairs for both system themes. */
+:root{color-scheme:light;--control-bg:#ffffff;--control-text:#263348;--hover-bg:#e5edf8;--hover-text:#17263c;--status-bg:#e6f0ff;--status-text:#164a88}
+select,option{background:var(--control-bg);color:var(--control-text)}
+.status-pill{background:var(--status-bg);color:var(--status-text);border-color:var(--line)}
+.sidebar button:hover{background:var(--hover-bg);color:var(--hover-text)}
+.sidebar button.active,.sidebar button.active:hover{background:#2857a4;color:#fff}
+.label,.storage-na{color:var(--muted)}
+.storage-capacity{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;color:var(--text);font-variant-numeric:tabular-nums}
+.storage-capacity small{color:var(--muted)}
+.storage-temp .label{margin-right:8px}
+.process-actions{display:flex;align-items:center;gap:12px;margin:16px 0;flex-wrap:wrap}
+.pagination-controls{display:flex;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.pagination-controls button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--control-bg);color:var(--control-text)}
+.pagination-controls select{padding:6px 10px}
+.pagination-controls span{font-variant-numeric:tabular-nums}
+.process-actions button,.confirm-panel button{padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--control-bg);color:var(--control-text)}
+button.danger-button{background:#a32020;color:white;border-color:#a32020}
+button:disabled{opacity:.55;cursor:not-allowed}
+.process-table tr.selected,.process-table tr.selected:hover{background:var(--status-bg);color:var(--status-text)}
+.confirm-panel{padding:18px;border:2px solid var(--accent);border-radius:12px;margin:16px 0;background:var(--control-bg);color:var(--control-text)}
+.confirm-panel button{margin-right:12px}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--control-bg:#182335;--control-text:#e6edf7;--hover-bg:#263b56;--hover-text:#f2f6fc;--status-bg:#1b3556;--status-text:#c7e2ff}.sidebar button{color:#cbd5e1}.sidebar button.active,.sidebar button.active:hover{background:#2857a4;color:#fff}}
+@media(max-width:900px){.storage-row-head{flex-wrap:wrap}.storage-name{flex-basis:60%}.storage-usage{flex:1;min-width:200px}}

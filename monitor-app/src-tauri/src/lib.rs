@@ -49,21 +49,38 @@ async fn get_processes(
         });
     }
 
-    // Sort the filtered full set.
+    // Sort the filtered full set. R6: unknown rates sort AFTER known ones
+    // (None is never treated as 0 and never ranks above a real reading).
+    let none_last = |a: &Option<f64>, b: &Option<f64>| match (a, b) {
+        (Some(x), Some(y)) => y.partial_cmp(x).unwrap_or(std::cmp::Ordering::Equal),
+        (None, Some(_)) => std::cmp::Ordering::Greater, // None sinks to the end
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, None) => std::cmp::Ordering::Equal,
+    };
     match sort.unwrap_or(ProcessSort::Memory) {
-        ProcessSort::Memory => page.processes.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes)),
-        ProcessSort::Cpu => page.processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)),
+        ProcessSort::Memory => page.processes.sort_by(|a, b| {
+            b.memory_bytes.cmp(&a.memory_bytes).then(a.pid.cmp(&b.pid))
+        }),
+        ProcessSort::Cpu => page.processes.sort_by(|a, b| {
+            b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal).then(a.pid.cmp(&b.pid))
+        }),
         ProcessSort::DiskRead => page.processes.sort_by(|a, b| {
-            b.disk_read_bps.unwrap_or(0.0).partial_cmp(&a.disk_read_bps.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal)
+            none_last(&a.disk_read_bps, &b.disk_read_bps).then(a.pid.cmp(&b.pid))
         }),
         ProcessSort::DiskWrite => page.processes.sort_by(|a, b| {
-            b.disk_write_bps.unwrap_or(0.0).partial_cmp(&a.disk_write_bps.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal)
+            none_last(&a.disk_write_bps, &b.disk_write_bps).then(a.pid.cmp(&b.pid))
         }),
     }
+
+    // R6: record how many rows matched the filter BEFORE pagination so the UI
+    // can render real page controls ("page X of N") instead of a fixed window.
+    page.matched_total = page.processes.len();
 
     // Paginate after sort.
     let offset = offset.unwrap_or(0);
     let limit = limit.unwrap_or(50).min(500);
+    page.offset = offset;
+    page.limit = limit;
     page.processes = page.processes.into_iter().skip(offset).take(limit).collect();
 
     Ok(page)
