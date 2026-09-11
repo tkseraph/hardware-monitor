@@ -8,6 +8,11 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 
 mod history;
+mod parse;
+mod query;
+
+#[cfg(test)]
+mod history_test;
 
 static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
