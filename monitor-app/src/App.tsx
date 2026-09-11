@@ -32,6 +32,9 @@ interface GpuInfo {
 
 interface DiskInfo {
   device: string;
+  /** Stable anonymous history identity (A10). */
+  device_uid: string;
+  generation: number;
   name: string;
   size_bytes: number;
   smart_status: string;
@@ -41,6 +44,8 @@ interface DiskInfo {
 
 interface DiskThroughput {
   device: string;
+  /** Stable anonymous history identity (A10). */
+  device_uid: string;
   mb_per_sec: number;
 }
 
@@ -74,12 +79,17 @@ interface VolumeInfo {
   id: string;
   name: string;
   role: string;
+  /** All APFS roles (multi-role volumes are not collapsed to one string). */
+  roles: string[];
   capacity_consumed: number | null;
 }
 
 interface ContainerInfo {
   container_ref: string;
-  physical_store: string | null;
+  /** R7/A09: EVERY backing physical store, never truncated to the first. */
+  physical_stores: string[];
+  /** True when capacity is shared across more than one physical disk. */
+  shared_pool: boolean;
   capacity_ceiling: number | null;
   capacity_free: number | null;
   capacity_in_use: number | null;
@@ -87,7 +97,12 @@ interface ContainerInfo {
 }
 
 interface PhysicalDisk {
+  /** Volatile enumeration address (e.g. disk0); live display only (A10). */
   device: string;
+  /** Stable anonymous history identity (A10); falls back to device if absent. */
+  device_uid: string | null;
+  /** Generation of device_uid; bumps on hot-plug address reuse (A10). */
+  generation: number;
   name: string;
   size_bytes: number;
   smart_status: string;
@@ -278,7 +293,7 @@ export function StorageRow({ disk }: { disk: PhysicalDisk }) {
         <span>{t("Used:")} {capacity ? formatBytes(capacity.used) : "—"}</span>
         <small>{t("APFS capacity basis")}: {capacity ? formatBytes(capacity.total) : "—"}</small>
       </div>
-      <TempSparkline device={disk.device} />
+      <TempSparkline historyKey={disk.device_uid ?? disk.device} label={disk.device} />
     </div>
   );
 }
@@ -470,17 +485,17 @@ function Chart({ history, label, unit = "%", gap_secs = 5 }: ChartProps) {
 // Per-disk temperature sparkline for the overview storage row. Returns
 // null when there is no history (or the fetch fails) so no empty frame
 // is rendered — honest absence, never a fabricated zero.
-export function TempSparkline({ device }: { device: string }) {
+export function TempSparkline({ historyKey, label }: { historyKey: string; label: string }) {
   const [history, setHistory] = useState<[number, number][]>([]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || !historyKey) return;
     let cancelled = false;
     const fetchHistory = async () => {
       try {
         const data = await invoke<[number, number][]>("get_history", {
           metricId: "disk.temperature",
-          objectId: device,
+          objectId: historyKey,
           durationSecs: 3600,
         });
         if (!cancelled) setHistory(data);
@@ -494,12 +509,12 @@ export function TempSparkline({ device }: { device: string }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [device]);
+  }, [historyKey]);
 
   if (history.length === 0) return null;
   return (
     <div className="chart--mini">
-      <Chart history={history} label={`temp-${device}`} unit="°C" gap_secs={10} />
+      <Chart history={history} label={`temp-${label}`} unit="°C" gap_secs={10} />
     </div>
   );
 }
@@ -697,18 +712,23 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
   const t = useText();
   const [history, setHistory] = useState<[number, number][]>([]);
   // Track which disk's throughput history is shown; default to the first.
+  // Selection and history are keyed by the stable anonymous device_uid (A10),
+  // never the volatile diskN address, so hot-plug/reboot cannot cross-join.
   const [selected, setSelected] = useState<string>("");
 
-  const activeDevice = selected || disks[0]?.device || "";
+  const historyKeyOf = (d: DiskInfo) => d.device_uid || d.device;
+  const activeKey = selected || (disks[0] ? historyKeyOf(disks[0]) : "");
+  const activeDisk = disks.find((d) => historyKeyOf(d) === activeKey);
+  const activeLabel = activeDisk ? activeDisk.name || activeDisk.device : "";
 
   useEffect(() => {
-    if (!activeDevice) return;
+    if (!activeKey) return;
     let cancelled = false;
     const fetchHistory = async () => {
       try {
         const data = await invoke<[number, number][]>("get_history", {
           metricId: "disk.throughput",
-          objectId: activeDevice, // per-selected-disk history, not always disk0 (F06)
+          objectId: activeKey, // per-selected-disk history by stable uid (F06, A10)
           durationSecs: 3600,
         });
         if (!cancelled) setHistory(data);
@@ -723,7 +743,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
       cancelled = true;
       clearInterval(interval);
     };
-  }, [activeDevice]);
+  }, [activeKey]);
 
   return (
     <div>
@@ -731,7 +751,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
       {disks.map((disk) => {
         const diskThroughput = throughput.find((t) => t.device === disk.device);
         return (
-          <div key={disk.device} className="card">
+          <div key={historyKeyOf(disk)} className="card">
             <h3>{disk.name || disk.device}</h3>
             <div className="info">
               <div className="label">{t("Device:")}</div>
@@ -770,10 +790,10 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
       {disks.length > 1 && (
         <div className="controls">
           {disks.map((d) => (
-            <div className="sort-buttons" key={d.device}>
+            <div className="sort-buttons" key={historyKeyOf(d)}>
               <button
-                className={activeDevice === d.device ? "active" : ""}
-                onClick={() => setSelected(d.device)}
+                className={activeKey === historyKeyOf(d) ? "active" : ""}
+                onClick={() => setSelected(historyKeyOf(d))}
               >
                 {d.name || d.device}
               </button>
@@ -784,7 +804,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
 
       {history.length > 0 && (
         <div className="card">
-          <h3>{t("Throughput History (Last Hour)")}{activeDevice ? ` · ${activeDevice}` : ""}</h3>
+          <h3>{t("Throughput History (Last Hour)")}{activeLabel ? ` · ${activeLabel}` : ""}</h3>
           <Chart history={history} label="disk" unit="MB/s" gap_secs={10} />
         </div>
       )}

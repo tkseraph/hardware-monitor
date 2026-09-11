@@ -40,7 +40,17 @@ pub struct GpuInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiskInfo {
+    /// Current enumeration address (e.g. "disk0") — volatile, display/live only.
     pub device: String,
+    /// R7/A10: stable anonymous identity used as the history object_id, so a
+    /// reused `diskN` never joins a previous disk's series. Empty until the
+    /// identity registry assigns one; falls back to `device` for display.
+    #[serde(default)]
+    pub device_uid: String,
+    /// Generation of `device_uid`; bumped when the same `device` address is
+    /// re-seen as a physically different medium (hot-plug) (A10).
+    #[serde(default)]
+    pub generation: u32,
     pub name: String,
     pub size_bytes: u64,
     pub smart_status: String,
@@ -50,7 +60,11 @@ pub struct DiskInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiskThroughput {
+    /// Current enumeration address (live label / command arg).
     pub device: String,
+    /// R7/A10: stable anonymous identity used as the history object_id.
+    #[serde(default)]
+    pub device_uid: String,
     pub mb_per_sec: f32,
 }
 
@@ -138,9 +152,14 @@ impl Sampler {
         let gpu = sample_gpu()?;
         // Build the storage topology once, then derive the flat disk list
         // and throughput device set from it so they can never disagree (F05).
-        let storage = storage::build_topology().unwrap_or_default();
+        let mut storage = storage::build_topology().unwrap_or_default();
+        // R7/A10: assign stable anonymous identities so history keys off the
+        // device_uid, never the volatile `diskN` address.
+        crate::device_id::assign_topology(&mut storage);
         let disks: Vec<DiskInfo> = storage.iter().map(|d| DiskInfo {
             device: d.device.clone(),
+            device_uid: d.device_uid.clone().unwrap_or_default(),
+            generation: d.generation,
             name: d.name.clone(),
             size_bytes: d.size_bytes,
             smart_status: d.smart_status.clone(),
@@ -148,7 +167,14 @@ impl Sampler {
             power_on_hours: d.power_on_hours,
         }).collect();
         let devices: Vec<String> = disks.iter().map(|d| d.device.clone()).collect();
-        let disk_throughput = self.sample_disk_throughput(&devices)?;
+        let mut disk_throughput = self.sample_disk_throughput(&devices)?;
+        // R7/A10: tag each throughput with the disk's anonymous uid so history
+        // is keyed by device_uid, not the volatile `diskN` address.
+        for tp in disk_throughput.iter_mut() {
+            if let Some(d) = disks.iter().find(|d| d.device == tp.device) {
+                tp.device_uid = d.device_uid.clone();
+            }
+        }
 
         let observed_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -201,7 +227,7 @@ impl Sampler {
                     let dt = now.duration_since(prev_at).as_secs_f32();
                     if dt > 0.0 && cur >= prev_mb {
                         let mb_s = ((cur - prev_mb) as f32) / dt;
-                        throughputs.push(DiskThroughput { device: dev.clone(), mb_per_sec: mb_s });
+                        throughputs.push(DiskThroughput { device: dev.clone(), device_uid: String::new(), mb_per_sec: mb_s });
                     }
                     // Counter went backwards (counter reset / disk re-add): drop
                     // the stale baseline; the new value becomes the baseline.
@@ -358,12 +384,16 @@ pub fn record_snapshot(info: &SystemInfo) {
         rows.push(("cpu.per_core", core_ids[i].as_str(), *usage as f64, "%"));
     }
     for disk in &info.disk_throughput {
-        rows.push(("disk.throughput", disk.device.as_str(), disk.mb_per_sec as f64, "MB/s"));
+        // R7/A10: history keyed by anonymous device_uid, falling back to the
+        // volatile address only if no uid was assigned (degraded path).
+        let oid = if disk.device_uid.is_empty() { disk.device.as_str() } else { disk.device_uid.as_str() };
+        rows.push(("disk.throughput", oid, disk.mb_per_sec as f64, "MB/s"));
     }
     // Disk temperature into history (only real readings; absent stays absent).
     for disk in &info.disks {
         if let Some(t) = disk.temperature_celsius {
-            rows.push(("disk.temperature", disk.device.as_str(), t as f64, "°C"));
+            let oid = if disk.device_uid.is_empty() { disk.device.as_str() } else { disk.device_uid.as_str() };
+            rows.push(("disk.temperature", oid, t as f64, "°C"));
         }
     }
     // Surface the error via health(); do not panic the sampler on a full disk.

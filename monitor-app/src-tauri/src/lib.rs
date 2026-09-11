@@ -4,6 +4,7 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}
 
 mod cmd;
 mod data_paths;
+mod device_id;
 mod history;
 mod instance;
 mod loginitem;
