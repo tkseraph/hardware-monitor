@@ -432,3 +432,40 @@ fn merge_upsert_is_idempotent_at_same_now() {
     let second = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
     assert_eq!(second, 10, "committed re-run must not double-count");
 }
+
+// ---------------------------------------------------------------------------
+// A02 reproductions: tier selection by wall-clock `now` misses data that has
+// not been aggregated yet (blind spot), and bucket queries that match only
+// `bucket_start` drop a bucket whose window actually covers the query range.
+// These FAIL against the current tier-by-now implementation.
+// ---------------------------------------------------------------------------
+
+/// A02 blind spot: a raw sample older than the raw TTL that has NOT been
+/// aggregated yet (aggregation runs every 60s, may lag or fail). The query
+/// assumes everything older than 1h is in buckets, so it reads zero points
+/// even though the raw row exists.
+#[test]
+fn a02_unaggregated_old_raw_sample_is_queryable() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    // One raw sample at ts=1000; do NOT aggregate. Query at now=4601 — the
+    // sample is >3600s old, so wall-clock tiering looks only in buckets.
+    ins(&db, 1000, "cpu.total_usage", "system", 7.0);
+    let pts = db.query_range_at("cpu.total_usage", "system", 900, 4601, 100, 4601).unwrap();
+    assert_eq!(pts.len(), 1, "un-aggregated old raw sample must still be returned");
+    assert_eq!(pts[0], (1000, 7.0));
+}
+
+/// A02 bucket coverage: a sample at ts=1005 lands in bucket [1000,1010) whose
+/// bucket_start is 1000. Querying [1005, ...) must still return that bucket —
+/// its window covers the query start even though bucket_start < 1005.
+#[test]
+fn a02_bucket_covering_query_start_is_not_dropped() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    ins(&db, 1005, "cpu.total_usage", "system", 9.0);
+    // Aggregate at a now that migrates it into a 10s bucket.
+    db.aggregate_and_prune_at(4610).unwrap();
+    let pts = db.query_range_at("cpu.total_usage", "system", 1005, 4610, 100, 4610).unwrap();
+    assert_eq!(pts.len(), 1, "bucket whose window covers the range start must be returned");
+    assert_eq!(pts[0].0, 1000, "bucket start is 1000");
+    assert_eq!(pts[0].1, 9.0);
+}

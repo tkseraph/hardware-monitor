@@ -309,57 +309,93 @@ impl HistoryDb {
     }
 
     /// Time-injectable variant for deterministic tests.
+    ///
+    /// R2: tiers are selected by *actual data presence*, not by assuming every
+    /// sample older than the wall-clock boundary has already been aggregated.
+    /// Aggregation lags (it runs every 60s, and may fail), so old un-aggregated
+    /// raw rows must still be found. Each tier therefore reads:
+    ///   - 60s buckets whose window [bucket_start, bucket_start+60) intersects the range
+    ///   - 10s buckets whose window intersects the range
+    ///   - raw rows (the full range — they fill blind spots the buckets miss)
+    /// Results are merged by timestamp and de-duplicated, finer tier winning,
+    /// so a sample present both as a raw row and inside a bucket is reported
+    /// once. No points are fabricated for gaps.
     pub fn query_range_at(&self, metric_id: &str, object_id: &str, start: i64, end: i64, max_points: usize, now: i64) -> SqlResult<Vec<(i64, f64)>> {
         let raw_boundary = now - RAW_TTL_SECS;
         let b10_boundary = now - BUCKET_10S_TTL_SECS;
 
-        let mut out: Vec<(i64, f64)> = Vec::new();
+        // Merged point set: key = timestamp, value = (value, tier_rank).
+        // tier_rank: raw=0 (finest), 10s=1, 60s=2. Finer wins on collision.
+        use std::collections::BTreeMap;
+        let mut merged: BTreeMap<i64, (f64, u8)> = BTreeMap::new();
+        let mut insert = |ts: i64, val: f64, rank: u8| {
+            merged
+                .entry(ts)
+                .and_modify(|e| {
+                    if rank < e.1 {
+                        *e = (val, rank);
+                    }
+                })
+                .or_insert((val, rank));
+        };
 
-        // Portion in 60s-bucket range: [start, min(end, b10_boundary))
+        // 60s buckets: only meaningful for the part of the range at/below the
+        // 24h boundary. A bucket covers [bucket_start, bucket_start+60), so it
+        // intersects [start,end) iff bucket_start+60 > start AND bucket_start < end.
         if start < b10_boundary {
             let seg_end = end.min(b10_boundary);
             let mut stmt = self.conn.prepare(
                 "SELECT bucket_start, avg_value FROM metric_buckets
                  WHERE granularity_secs = 60 AND metric_id = ?1 AND object_id = ?2
-                   AND bucket_start >= ?3 AND bucket_start < ?4
+                   AND bucket_start + 60 > ?3 AND bucket_start < ?4
                  ORDER BY bucket_start ASC"
             )?;
             let rows = stmt.query_map((metric_id, object_id, start, seg_end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
             })?;
-            for r in rows.flatten() { out.push(r); }
+            for r in rows.flatten() {
+                insert(r.0, r.1, 2);
+            }
         }
 
-        // Portion in 10s-bucket range: [max(start, b10_boundary), min(end, raw_boundary))
-        if end > b10_boundary && start < raw_boundary {
+        // 10s buckets: for the part at/below the raw boundary (and above the
+        // 24h boundary where they still exist). Window is bucket_start+10.
+        if start < raw_boundary && end > b10_boundary {
             let seg_start = start.max(b10_boundary);
             let seg_end = end.min(raw_boundary);
             let mut stmt = self.conn.prepare(
                 "SELECT bucket_start, avg_value FROM metric_buckets
                  WHERE granularity_secs = 10 AND metric_id = ?1 AND object_id = ?2
-                   AND bucket_start >= ?3 AND bucket_start < ?4
+                   AND bucket_start + 10 > ?3 AND bucket_start < ?4
                  ORDER BY bucket_start ASC"
             )?;
             let rows = stmt.query_map((metric_id, object_id, seg_start, seg_end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
             })?;
-            for r in rows.flatten() { out.push(r); }
+            for r in rows.flatten() {
+                insert(r.0, r.1, 1);
+            }
         }
 
-        // Portion in raw range: [max(start, raw_boundary), end)
-        if end > raw_boundary {
-            let seg_start = start.max(raw_boundary);
+        // Raw rows: the FULL range. Recent rows are the primary source for the
+        // last hour; older un-aggregated rows fill blind spots where buckets
+        // have not caught up. Raw is the finest tier, so it wins collisions.
+        {
             let mut stmt = self.conn.prepare(
                 "SELECT timestamp, value FROM metric_samples
                  WHERE metric_id = ?1 AND object_id = ?2
                    AND timestamp >= ?3 AND timestamp < ?4
                  ORDER BY timestamp ASC"
             )?;
-            let rows = stmt.query_map((metric_id, object_id, seg_start, end), |r| {
+            let rows = stmt.query_map((metric_id, object_id, start, end), |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
             })?;
-            for r in rows.flatten() { out.push(r); }
+            for r in rows.flatten() {
+                insert(r.0, r.1, 0);
+            }
         }
+
+        let mut out: Vec<(i64, f64)> = merged.into_iter().map(|(ts, (v, _))| (ts, v)).collect();
 
         // Downsample to max_points by uniform stride if we exceeded the cap.
         if out.len() > max_points {
