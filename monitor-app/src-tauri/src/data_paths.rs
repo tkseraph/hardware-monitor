@@ -46,8 +46,13 @@ impl DataPaths {
 mod tests {
     use super::*;
 
+    // Tests mutate the process-wide MONITOR_DATA_DIR env var; serialize them
+    // so parallel test threads don't race on set/remove.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn env_override_wins_and_isolates() {
+        let _g = ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("monitor-dpaths-{}", std::process::id()));
         std::env::set_var("MONITOR_DATA_DIR", &dir);
         let real = std::env::temp_dir().join("should-not-be-created-xyz");
@@ -61,6 +66,7 @@ mod tests {
 
     #[test]
     fn canonicalizes_root() {
+        let _g = ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("monitor-dpaths-canon-{}", std::process::id()));
         std::env::set_var("MONITOR_DATA_DIR", &dir);
         let p = DataPaths::resolve(dir.clone()).unwrap();

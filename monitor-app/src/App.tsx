@@ -1,9 +1,11 @@
+import { storageUsage } from "./storage-usage";
 import { createContext, useContext, useEffect, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
 const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度"};
+Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。"});
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
 interface CpuInfo {
@@ -100,6 +102,18 @@ interface SystemInfo {
   observed_at: number;
 }
 
+/** R4: sampling + history health from get_system_status. */
+interface SamplingHealth {
+  last_success_at: number | null;
+  success_age_secs: number | null;
+  consecutive_failures: number;
+  ever_succeeded: boolean;
+}
+interface SystemStatus {
+  sampling: SamplingHealth;
+  history_health: "ok" | "over_budget" | "write_error" | "unavailable";
+}
+
 type Page = "overview" | "cpu" | "memory" | "gpu" | "disk" | "processes" | "settings";
 
 type IconName = "overview" | "cpu" | "memory" | "gpu" | "disk" | "processes" | "settings";
@@ -134,19 +148,7 @@ function formatBytes(bytes: number): string {
 // in_use / ceiling once (S5). Returns null when not computable so the
 // UI shows "—" instead of fabricating a value.
 export function diskUsagePercent(disk: PhysicalDisk): number | null {
-  if (disk.containers.length === 0) return null;
-  let inUse = 0;
-  let ceiling = 0;
-  for (const c of disk.containers) {
-    // Any container missing either figure makes the total unknowable —
-    // return null rather than a partial, understated sum.
-    if (c.capacity_in_use === null || c.capacity_ceiling === null) return null;
-    inUse += c.capacity_in_use;
-    ceiling += c.capacity_ceiling;
-  }
-  if (ceiling <= 0) return null;
-  if (inUse > ceiling) return null; // anomalous reading; don't fabricate
-  return (inUse / ceiling) * 100;
+  return storageUsage(disk.containers)?.percent ?? null;
 }
 
 function App() {
@@ -154,6 +156,7 @@ function App() {
   const zh = language === "zh";
   useEffect(() => { localStorage.setItem("monitor-language", language); document.documentElement.lang = zh ? "zh-CN" : "en"; }, [language, zh]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>("overview");
 
@@ -164,8 +167,12 @@ function App() {
       if (busy) return;
       busy = true;
       try {
-        const info = await invoke<SystemInfo>("get_system_info");
+        const [info, st] = await Promise.all([
+          invoke<SystemInfo>("get_system_info"),
+          invoke<SystemStatus>("get_system_status"),
+        ]);
         setSystemInfo(info);
+        setStatus(st);
         setError(null);
       } catch (err) {
         setError(String(err));
@@ -178,6 +185,17 @@ function App() {
     const interval = setInterval(fetchData, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // R4/A03: a cached snapshot is only "realtime" while it is fresh. Foreground
+  // cadence is ~1s (user-configurable up to 10s), so a snapshot older than 15s
+  // means collection has stalled — never show a stale value as live.
+  const FRESH_THRESHOLD_SECS = 15;
+  const snapshotAge = status?.sampling.success_age_secs ?? null;
+  const isStale = status !== null
+    && status.sampling.ever_succeeded
+    && snapshotAge !== null
+    && snapshotAge > FRESH_THRESHOLD_SECS;
+  const historyDegraded = status !== null && status.history_health !== "ok";
 
   const pages: [Page, string, string, IconName][] = [
     ["overview", "总览", "Overview", "overview"], ["cpu", "处理器", "CPU", "cpu"],
@@ -196,7 +214,9 @@ function App() {
       </nav>
       <main className="content">
         <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><select aria-label={zh ? "界面语言" : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></header>
-        <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : systemInfo ? (zh ? "实时采集中" : "Collecting") : (zh ? "等待采样" : "Waiting")}</span></section>
+        <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : isStale ? (zh ? "数据可能过期" : "Data may be stale") : systemInfo ? (zh ? "实时采集中" : "Collecting") : (zh ? "等待采样" : "Waiting")}</span></section>
+        {isStale && !error && <div className="note" role="status">{zh ? `采集器已 ${snapshotAge} 秒未更新，显示的为最近成功读数。` : `Collector has not updated for ${snapshotAge}s; showing the last good reading.`}</div>}
+        {historyDegraded && !error && <div className="note" role="status">{zh ? "历史记录暂不可用或已暂停写入；实时读数不受影响。" : "History is unavailable or paused; realtime readings are unaffected."}</div>}
         {error && <div className="note" role="alert">{zh ? "采集失败，显示的旧读数可能已过期：" : "Collection failed; previous values may be stale: "}{error}</div>}
         {!systemInfo && currentPage !== "settings" && <section className="empty-panel"><div className="empty-icon"><Icon name="overview" /></div><h3>{zh ? (isTauri() ? "正在连接本机采集器" : "在桌面应用中查看实时数据") : (isTauri() ? "Connecting to collectors" : "Live metrics need the desktop app")}</h3><p>{zh ? "硬件指标由 macOS 原生接口提供。未连接采集器时，不显示模拟读数。" : "Metrics come from native macOS APIs. No simulated readings are displayed."}</p><div className="empty-grid">{pages.slice(1,5).map(([id,cn,en,icon]) => <button key={id} onClick={() => setCurrentPage(id)}><span><Icon name={icon} /></span><strong>{zh ? cn : en}</strong><b>—</b><small>{zh ? "等待真实数据" : "Awaiting real data"}</small></button>)}</div></section>}
 
@@ -215,7 +235,8 @@ function App() {
 
 export function StorageRow({ disk }: { disk: PhysicalDisk }) {
   const t = useText();
-  const usage = diskUsagePercent(disk);
+  const capacity = storageUsage(disk.containers);
+  const usage = capacity?.percent ?? null;
   return (
     <div className="storage-row">
       <div className="storage-row-head">
@@ -230,7 +251,7 @@ export function StorageRow({ disk }: { disk: PhysicalDisk }) {
             <span className="storage-na">—</span>
           ) : (
             <>
-              <div className="progress-bar">
+              <div className="progress-bar" role="progressbar" aria-label={t("Usage")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={usage}>
                 <div className="progress" style={{ width: `${usage}%` }}></div>
               </div>
               <span className="storage-pct">{usage.toFixed(0)}%</span>
@@ -245,6 +266,11 @@ export function StorageRow({ disk }: { disk: PhysicalDisk }) {
             <span className="value">{disk.temperature_celsius.toFixed(1)}°C</span>
           )}
         </div>
+      </div>
+      <div className="storage-capacity">
+        <span>{t("Physical capacity")}: {disk.size_bytes > 0 ? formatBytes(disk.size_bytes) : "—"}</span>
+        <span>{t("Used:")} {capacity ? formatBytes(capacity.used) : "—"}</span>
+        <small>{t("APFS capacity basis")}: {capacity ? formatBytes(capacity.total) : "—"}</small>
       </div>
       <TempSparkline device={disk.device} />
     </div>
@@ -442,6 +468,7 @@ export function TempSparkline({ device }: { device: string }) {
   const [history, setHistory] = useState<[number, number][]>([]);
 
   useEffect(() => {
+    if (!isTauri()) return;
     let cancelled = false;
     const fetchHistory = async () => {
       try {
@@ -759,12 +786,33 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
   );
 }
 
-function ProcessesPage() {
+export function ProcessesPage() {
   const t = useText();
   const [page, setPage] = useState<ProcessPage | null>(null);
   const [sortBy, setSortBy] = useState<ProcessSortKey>("memory");
   const [searchTerm, setSearchTerm] = useState("");
   const [loadError, setLoadError] = useState(false);
+  const [selected, setSelected] = useState<ProcessInfo | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [terminationMessage, setTerminationMessage] = useState("");
+  const endProcess = async () => {
+    if (!selected || ending) return;
+    setEnding(true);
+    try {
+      await invoke("terminate_process", { pid: selected.pid, startMarker: selected.start_marker });
+      setTerminationMessage(t("Termination requested; process may still be running."));
+      setSelected(null);
+    } catch (error) {
+      const messages: Record<string, string> = {
+        protected: "This process is protected.", gone: "Process already exited.",
+        changed: "Process identity changed. Select it again.",
+        permission: "Permission denied; only your own processes can be ended.",
+      };
+      setTerminationMessage(t(messages[String(error)] ?? "Failed to request termination."));
+    } finally { setEnding(false); setConfirming(false); }
+  };
+
 
   useEffect(() => {
     let cancelled = false;
@@ -835,6 +883,17 @@ function ProcessesPage() {
           </p>
         )}
         {loadError && <p className="note">{t("Failed to load processes")}</p>}
+        <div className="process-actions">
+          <button className="danger-button" disabled={!selected || ending || loadError} onClick={() => setConfirming(true)}>{t("End process")}</button>
+          <span>{selected ? `${selected.name} · PID ${selected.pid}` : t("Select a process")}</span>
+        </div>
+        {terminationMessage && <p role="status" className="note">{terminationMessage}</p>}
+        {confirming && selected && <div className="confirm-panel" role="alertdialog" aria-modal="false" aria-labelledby="end-title" aria-describedby="end-description">
+          <h3 id="end-title">{t("End process")}: {selected.name} · PID {selected.pid}</h3>
+          <p id="end-description">{t("Unsaved work may be lost. Send SIGTERM without force or elevation?")}</p>
+          <button autoFocus disabled={ending} onClick={() => setConfirming(false)}>{t("Cancel")}</button>
+          <button className="danger-button" disabled={ending} onClick={endProcess}>{t(ending ? "Requesting…" : "Confirm termination")}</button>
+        </div>}
         <table className="process-table">
           <thead>
             <tr>
@@ -851,8 +910,9 @@ function ProcessesPage() {
               <tr><td colSpan={6}>{t("No matching processes")}</td></tr>
             )}
             {processes.map((proc) => (
-              <tr key={`${proc.pid}-${proc.start_marker}`}>
-                <td>{proc.pid}</td>
+              <tr key={`${proc.pid}-${proc.start_marker}`} className={selected?.pid === proc.pid && selected.start_marker === proc.start_marker ? "selected" : ""}>
+
+                <td><input type="radio" name="selected-process" aria-label={`${t("Select a process")}: ${proc.name} PID ${proc.pid}`} disabled={confirming || ending} checked={selected?.pid === proc.pid && selected.start_marker === proc.start_marker} onChange={() => {setSelected(proc); setTerminationMessage("");}} />{proc.pid}</td>
                 <td>{proc.name}</td>
                 <td>{formatBytes(proc.memory_bytes)}</td>
                 <td>{proc.cpu_usage.toFixed(1)}%</td>

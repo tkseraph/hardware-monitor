@@ -6,6 +6,7 @@ mod data_paths;
 mod history;
 mod instance;
 mod loginitem;
+mod metric_status;
 mod parse;
 mod processes;
 mod query;
@@ -88,6 +89,29 @@ async fn get_history(metric_id: String, object_id: String, duration_secs: i64) -
 async fn get_system_info() -> Result<SystemInfo, String> {
     sampler::latest_snapshot()
         .ok_or_else(|| "collector is still warming up".to_string())
+}
+
+/// R4: combined health view. IPC success is NOT collection success — this DTO
+/// carries sampling freshness and history-write health so the frontend can
+/// show "数据可能过期" instead of a stale value labeled "实时采集中" (A03).
+#[derive(Debug, serde::Serialize)]
+struct SystemStatus {
+    sampling: metric_status::SamplingHealth,
+    history_health: &'static str,
+}
+
+#[tauri::command]
+async fn get_system_status() -> Result<SystemStatus, String> {
+    let hh = match history::health() {
+        history::HistoryHealth::Ok => "ok",
+        history::HistoryHealth::OverBudget => "over_budget",
+        history::HistoryHealth::WriteError => "write_error",
+        history::HistoryHealth::Unavailable => "unavailable",
+    };
+    Ok(SystemStatus {
+        sampling: metric_status::health(),
+        history_health: hh,
+    })
 }
 
 #[tauri::command]
@@ -280,6 +304,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       get_system_info,
+      get_system_status,
       get_processes,
       terminate_process,
       get_history,

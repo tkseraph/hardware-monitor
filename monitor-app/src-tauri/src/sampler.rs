@@ -386,7 +386,20 @@ pub async fn run_scheduler() {
                 Err(_) => continue,
             };
             match guard.as_mut() {
-                Some(s) => s.sample().ok(),
+                Some(s) => {
+                    crate::metric_status::note_attempt();
+                    match s.sample() {
+                        Ok(info) => {
+                            crate::metric_status::note_success();
+                            Some(info)
+                        }
+                        Err(e) => {
+                            crate::metric_status::note_failure();
+                            log::warn!("sample pass failed: {}", e);
+                            None
+                        }
+                    }
+                }
                 None => None,
             }
         };
