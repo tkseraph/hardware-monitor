@@ -130,6 +130,22 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
+// Occupancy attributed per physical disk: sum each APFS container's
+// in_use / ceiling once (S5). Returns null when not computable so the
+// UI shows "—" instead of fabricating a value.
+export function diskUsagePercent(disk: PhysicalDisk): number | null {
+  if (disk.containers.length === 0) return null;
+  let inUse = 0;
+  let ceiling = 0;
+  for (const c of disk.containers) {
+    if (c.capacity_in_use !== null) inUse += c.capacity_in_use;
+    if (c.capacity_ceiling !== null) ceiling += c.capacity_ceiling;
+  }
+  if (ceiling <= 0) return null;
+  if (inUse > ceiling) return null; // anomalous reading; don't fabricate
+  return (inUse / ceiling) * 100;
+}
+
 function App() {
   const [language, setLanguage] = useState<Language>(() => localStorage.getItem("monitor-language") === "en" ? "en" : "zh");
   const zh = language === "zh";
