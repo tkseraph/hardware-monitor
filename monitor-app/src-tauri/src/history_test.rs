@@ -230,3 +230,205 @@ fn over_budget_pauses_writes_but_keeps_data() {
     let _ = std::fs::remove_file(path.with_extension("db-wal"));
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
+
+// ---------------------------------------------------------------------------
+// R1b verification matrix: statistical conservation, late samples, clock
+// rewind, multi-metric/device, sparse data, re-entrancy. All in-memory.
+// ---------------------------------------------------------------------------
+
+/// Bucket statistics must faithfully reproduce the source: after aggregation,
+/// every 10s bucket's count/sum-derived avg/min/max must match the raw rows it
+/// covers. We verify min/max/sample_count exactly and avg within float eps.
+#[test]
+fn bucket_statistics_match_source_rows() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let base = now - 7200;
+    // One full 10s bucket with known non-uniform values.
+    let bucket_start = (base / 10) * 10;
+    let vals = [1.0, 5.0, 2.0, 9.0, 3.0]; // min1 max9 sum20 count5 avg4
+    for (i, v) in vals.iter().enumerate() {
+        ins(&db, bucket_start + i as i64, "cpu.total_usage", "system", *v);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+
+    let cnt = count(&db, "SELECT sample_count FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(cnt, 5);
+    let mn = db.avg_for_test("SELECT min_value FROM metric_buckets WHERE granularity_secs=10");
+    let mx = db.avg_for_test("SELECT max_value FROM metric_buckets WHERE granularity_secs=10");
+    let av = db.avg_for_test("SELECT avg_value FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(mn, 1.0);
+    assert_eq!(mx, 9.0);
+    assert!((av - 4.0).abs() < 1e-6, "avg was {}", av);
+    // first/last timestamps preserved
+    let first = count(&db, "SELECT first_ts FROM metric_buckets WHERE granularity_secs=10");
+    let last = count(&db, "SELECT last_ts FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(first, bucket_start);
+    assert_eq!(last, bucket_start + 4);
+}
+
+/// 60s rollup must be sample-count-weighted, not a naive mean of bucket means.
+#[test]
+fn coarse_rollup_is_count_weighted() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let base = ((now - 100_000) / 60) * 60; // a closed 60s window, well past 24h
+    // 10s bucket A: 10 samples of value 10. 10s bucket B: 1 sample of value 100.
+    // Both inside the same 60s window [base, base+60).
+    for i in 0..10 {
+        ins(&db, base + i, "m", "o", 10.0);
+    }
+    ins(&db, base + 10, "m", "o", 100.0);
+    db.aggregate_and_prune_at(now).unwrap();
+
+    // Weighted avg = (10*10 + 1*100)/11 = 200/11 ≈ 18.18, NOT (10+100)/2 = 55.
+    let av = db.avg_for_test("SELECT avg_value FROM metric_buckets WHERE granularity_secs=60");
+    let expect = 200.0 / 11.0;
+    assert!((av - expect).abs() < 1e-4, "weighted avg {} != {}", av, expect);
+    let total = count(&db, "SELECT SUM(sample_count) FROM metric_buckets WHERE granularity_secs=60");
+    assert_eq!(total, 11);
+}
+
+/// Late-arriving samples (written after their bucket was already aggregated)
+/// must not be double-counted nor silently dropped without trace. With the
+/// aligned cutoff, a sample inserted with an old timestamp lands in a closed
+/// bucket that already exists; INSERT OR REPLACE would recompute from ONLY the
+/// remaining raw rows and shrink the bucket. The stop-loss must therefore keep
+/// such a bucket's source rows until they are old enough that re-aggregation
+/// covers the whole bucket — verified here by conservation.
+#[test]
+fn late_sample_in_closed_bucket_is_conserved() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let bucket_start = ((now - 7200) / 10) * 10;
+    // 5 samples aggregate at `now`.
+    for i in 0..5 {
+        ins(&db, bucket_start + i, "cpu.total_usage", "system", 10.0);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+    let after1: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(after1, 5);
+
+    // A late sample arrives for the same (already-migrated) bucket.
+    ins(&db, bucket_start + 7, "cpu.total_usage", "system", 10.0);
+    // Aggregate again at a later now — the late sample is still < cutoff? No:
+    // it's old (bucket_start+7 << now-3600), so it IS eligible. Its bucket
+    // already exists. Conservation must hold (6 total, not 5-overwritten-to-1).
+    db.aggregate_and_prune_at(now + 60).unwrap();
+    let after2: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(after2, 6, "late sample in closed bucket must be conserved, not overwrite");
+}
+
+/// Clock rewind: if `now` moves backwards between runs, no samples may be lost
+/// and no bucket may be recomputed from a partial set.
+#[test]
+fn clock_rewind_does_not_lose_samples() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let bucket_start = ((now - 7200) / 10) * 10;
+    for i in 0..10 {
+        ins(&db, bucket_start + i, "cpu.total_usage", "system", i as f64);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+    // Rewind the clock by 5 minutes and aggregate again.
+    db.aggregate_and_prune_at(now - 300).unwrap();
+    let conserved: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved, 10, "clock rewind must not lose samples");
+}
+
+/// Multiple metrics and devices aggregate independently; one metric's buckets
+/// do not absorb another's.
+#[test]
+fn multi_metric_multi_device_independent() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let base = now - 7200;
+    let b = (base / 10) * 10;
+    for i in 0..10 {
+        ins(&db, b + i, "cpu.total_usage", "system", 1.0);
+        ins(&db, b + i, "disk.throughput", "disk0", 2.0);
+        ins(&db, b + i, "disk.throughput", "disk1", 3.0);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+    let groups = count(&db, "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(groups, 3, "one bucket per (metric, object)");
+    let conserved: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved, 30);
+}
+
+/// Sparse samples (a single sample in a bucket) still aggregate and conserve;
+/// gaps must NOT be zero-filled.
+#[test]
+fn sparse_samples_conserve_without_zerofill() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let base = now - 7200;
+    // One sample in bucket N, none in N+1, one in N+2.
+    let b = (base / 10) * 10;
+    ins(&db, b, "cpu.total_usage", "system", 42.0);
+    ins(&db, b + 20, "cpu.total_usage", "system", 43.0);
+    db.aggregate_and_prune_at(now).unwrap();
+    let buckets = count(&db, "SELECT COUNT(*) FROM metric_buckets WHERE granularity_secs=10");
+    assert_eq!(buckets, 2, "no zero-filled bucket for the gap");
+    let conserved: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved, 2);
+}
+
+/// Re-entrancy: a fresh HistoryDb over the SAME file (simulating app restart)
+/// sees already-aggregated buckets and does not double-count.
+#[test]
+fn restart_reentry_does_not_double_count() {
+    use std::env::temp_dir;
+    let mut path = temp_dir();
+    path.push(format!("monitor-reentry-{}.db", std::process::id()));
+    let now = crate::history::test_now();
+    let base = now - 7200;
+    let b = (base / 10) * 10;
+
+    {
+        let db = HistoryDb::new(path.clone()).unwrap();
+        for i in 0..10 {
+            ins(&db, b + i, "cpu.total_usage", "system", 1.0);
+        }
+        db.aggregate_and_prune_at(now).unwrap();
+    } // drop = close
+
+    // "Restart": reopen the same file and aggregate again at a later now.
+    {
+        let db = HistoryDb::new(path.clone()).unwrap();
+        db.aggregate_and_prune_at(now + 120).unwrap();
+        let conserved: i64 = count(&db, "SELECT COUNT(*) FROM metric_samples")
+            + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+        assert_eq!(conserved, 10, "restart must not double-count");
+        drop(db);
+    }
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// MERGE-UPSERT safety: the whole aggregation pass is one transaction, so a
+/// committed pass always deletes its sources; a rolled-back pass applies
+/// nothing. This pins that two committed passes at the same `now` yield one
+/// copy of each sample (no double-count via the merge path).
+#[test]
+fn merge_upsert_is_idempotent_at_same_now() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let b = ((now - 7200) / 10) * 10;
+    for i in 0..10 {
+        ins(&db, b + i, "cpu.total_usage", "system", 1.0);
+    }
+    db.aggregate_and_prune_at(now).unwrap();
+    let first = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(first, 10);
+    db.aggregate_and_prune_at(now).unwrap();
+    let second = count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(second, 10, "committed re-run must not double-count");
+}

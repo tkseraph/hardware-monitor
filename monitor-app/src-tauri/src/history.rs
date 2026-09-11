@@ -176,16 +176,34 @@ impl HistoryDb {
         // Step 1: raw samples older than RAW_TTL → 10s buckets.
         // Align the cutoff down to a 10s boundary so we only ever migrate
         // buckets whose entire [start, start+10) window is below the cutoff.
+        //
+        // A bucket may already exist (written by an earlier pass). The source
+        // rows still present are then *late arrivals* for an already-migrated
+        // bucket: their original rows were deleted after the first write, so
+        // recomputing with INSERT OR REPLACE would overwrite the stored
+        // statistics with just the stragglers (A01 late-sample data loss). We
+        // therefore MERGE: combine the incoming raw rows with any existing
+        // bucket using count-weighted average, min/max, count, and first/last.
         let raw_cutoff = ((now - RAW_TTL_SECS) / 10) * 10;
         let raw_rows = tx.execute(
-            "INSERT OR REPLACE INTO metric_buckets
+            "INSERT INTO metric_buckets
                 (granularity_secs, bucket_start, metric_id, object_id,
                  avg_value, min_value, max_value, sample_count, first_ts, last_ts, unit)
              SELECT 10, (timestamp / 10) * 10, metric_id, object_id,
                     AVG(value), MIN(value), MAX(value), COUNT(*), MIN(timestamp), MAX(timestamp), unit
              FROM metric_samples
              WHERE timestamp < ?1
-             GROUP BY (timestamp / 10), metric_id, object_id",
+             GROUP BY (timestamp / 10), metric_id, object_id
+             ON CONFLICT (granularity_secs, metric_id, object_id, bucket_start)
+             DO UPDATE SET
+                avg_value = (metric_buckets.avg_value * metric_buckets.sample_count
+                             + excluded.avg_value * excluded.sample_count)
+                            / (metric_buckets.sample_count + excluded.sample_count),
+                min_value = MIN(metric_buckets.min_value, excluded.min_value),
+                max_value = MAX(metric_buckets.max_value, excluded.max_value),
+                sample_count = metric_buckets.sample_count + excluded.sample_count,
+                first_ts = MIN(metric_buckets.first_ts, excluded.first_ts),
+                last_ts = MAX(metric_buckets.last_ts, excluded.last_ts)",
             [raw_cutoff],
         )?;
         report.buckets_10s_written = raw_rows;
@@ -220,7 +238,7 @@ impl HistoryDb {
         // Align to a 60s boundary so only closed 60s windows are migrated.
         let b10_cutoff = ((now - BUCKET_10S_TTL_SECS) / 60) * 60;
         let b10_rows = tx.execute(
-            "INSERT OR REPLACE INTO metric_buckets
+            "INSERT INTO metric_buckets
                 (granularity_secs, bucket_start, metric_id, object_id,
                  avg_value, min_value, max_value, sample_count, first_ts, last_ts, unit)
              SELECT 60, (bucket_start / 60) * 60, metric_id, object_id,
@@ -229,7 +247,17 @@ impl HistoryDb {
                     MIN(first_ts), MAX(last_ts), unit
              FROM metric_buckets
              WHERE granularity_secs = 10 AND bucket_start < ?1
-             GROUP BY (bucket_start / 60), metric_id, object_id",
+             GROUP BY (bucket_start / 60), metric_id, object_id
+             ON CONFLICT (granularity_secs, metric_id, object_id, bucket_start)
+             DO UPDATE SET
+                avg_value = (metric_buckets.avg_value * metric_buckets.sample_count
+                             + excluded.avg_value * excluded.sample_count)
+                            / (metric_buckets.sample_count + excluded.sample_count),
+                min_value = MIN(metric_buckets.min_value, excluded.min_value),
+                max_value = MAX(metric_buckets.max_value, excluded.max_value),
+                sample_count = metric_buckets.sample_count + excluded.sample_count,
+                first_ts = MIN(metric_buckets.first_ts, excluded.first_ts),
+                last_ts = MAX(metric_buckets.last_ts, excluded.last_ts)",
             [b10_cutoff],
         )?;
         report.buckets_60s_written = b10_rows;
