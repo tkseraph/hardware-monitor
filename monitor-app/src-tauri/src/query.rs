@@ -23,7 +23,11 @@ pub enum QueryError {
     UnknownMetric(String),
     NonPositiveDuration,
     RangeTooLarge,
+    // Reserved for when the IPC accepts an explicit end time and an explicit
+    // point budget; not constructed by the current duration-only query path.
+    #[allow(dead_code)]
     EndBeforeStart,
+    #[allow(dead_code)]
     TooManyPoints { requested: usize, max: usize },
 }
 
