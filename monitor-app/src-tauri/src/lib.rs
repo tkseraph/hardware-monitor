@@ -142,7 +142,14 @@ pub fn run() {
       let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
       let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
+      // Dedicated template icon so the tray renders in the menu bar on both
+      // light and dark themes. The colored app icon renders as an invisible
+      // glyph when macOS templates it.
+      let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))
+        .expect("failed to load tray icon");
       let _tray = TrayIconBuilder::new()
+        .icon(tray_icon)
+        .icon_as_template(true)
         .menu(&menu)
         .tooltip("Hardware Monitor")
         .on_menu_event(|app, event| match event.id.as_ref() {
