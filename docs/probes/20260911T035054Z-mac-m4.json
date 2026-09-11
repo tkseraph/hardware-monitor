@@ -1,0 +1,670 @@
+{
+  "report_version": "0.1",
+  "generated_at": "2026-09-11T03:50:57Z",
+  "host": {
+    "model": "Mac16,10",
+    "chip": "Apple M4",
+    "os_version": "26.5.2",
+    "build": "25F84",
+    "arch": "arm64",
+    "memory_bytes": 17179869184,
+    "cpu_physical_cores": 10,
+    "cpu_logical_cores": 10,
+    "cpu_perf_levels": [
+      {
+        "name": "Performance",
+        "physical": 4,
+        "logical": 4
+      },
+      {
+        "name": "Efficiency",
+        "physical": 6,
+        "logical": 6
+      }
+    ]
+  },
+  "permissions": {
+    "mode": "normal",
+    "enhanced_authorized": false,
+    "enhanced_available": false,
+    "notes": "普通权限运行，未提权，未安装增强组件"
+  },
+  "probes": [
+    {
+      "id": "cpu.topology",
+      "category": "cpu",
+      "description": "CPU 拓扑：物理/逻辑核心数、性能等级",
+      "source": "sysctl hw.physicalcpu hw.logicalcpu hw.nperflevels",
+      "status": "verified",
+      "value": {
+        "physical_cores": 10,
+        "logical_cores": 10,
+        "perf_levels": [
+          {
+            "name": "Performance",
+            "physical": 4,
+            "logical": 4
+          },
+          {
+            "name": "Efficiency",
+            "physical": 6,
+            "logical": 6
+          }
+        ]
+      },
+      "unit": "count",
+      "sampled_at": "2026-09-11T03:50:54Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态拓扑；P/E 映射到具体逻辑处理器索引未验证",
+      "evidence": {
+        "raw": "phys=10 logical=10 perf_levels=2"
+      }
+    },
+    {
+      "id": "cpu.total_usage",
+      "category": "cpu",
+      "description": "CPU 总占用率（%）",
+      "source": "iostat -c 2 -w 1",
+      "status": "verified",
+      "value": {
+        "user": 14.0,
+        "system": 7.0,
+        "idle": 78.0,
+        "total_usage": 22.0
+      },
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 1000,
+      "confidence": "medium",
+      "notes": "iostat 差分，第二次采样值",
+      "evidence": {
+        "raw": "    0.00    0  0.00     0.00    0  0.00     0.00    0  0.00  14  7 78  6.30 3.76 3.10"
+      }
+    },
+    {
+      "id": "cpu.per_core_usage",
+      "category": "cpu",
+      "description": "每逻辑处理器占用率（%）",
+      "source": "host_processor_info 或 sysinfo",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "host_processor_info 需验证权限；sysinfo 为 Rust 依赖；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "memory.total",
+      "category": "memory",
+      "description": "物理内存总量",
+      "source": "sysctl hw.memsize",
+      "status": "verified",
+      "value": 17179869184,
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态总量",
+      "evidence": {
+        "raw": "17179869184"
+      }
+    },
+    {
+      "id": "memory.used_available",
+      "category": "memory",
+      "description": "内存已用/可用（动态）",
+      "source": "memory_pressure + sysctl vm.page_free_count",
+      "status": "verified",
+      "value": {
+        "used_bytes": 12576964608,
+        "available_bytes": 4079878144,
+        "free_bytes": 67878912,
+        "active_bytes": 3975790592,
+        "inactive_bytes": 3693936640,
+        "wired_bytes": 2819801088,
+        "compressed_bytes": 5781372928,
+        "speculative_bytes": 268533760,
+        "purgeable_bytes": 49528832,
+        "total_calculated": 16656842752,
+        "total_expected": 17179869184,
+        "diff_bytes": 523026432,
+        "used_percent": 73.21
+      },
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "medium",
+      "notes": "口径: used=active+wired+compressor; available=free+inactive+speculative+purgeable; 与物理总量差异 523026432 bytes (~498.8MB)",
+      "evidence": {
+        "raw": "memory_pressure 输出已解析"
+      }
+    },
+    {
+      "id": "memory.process_rank",
+      "category": "memory",
+      "description": "进程内存排行（RSS）",
+      "source": "ps -A -o pid,rss,comm -r",
+      "status": "verified",
+      "value": {
+        "top_processes": [
+          {
+            "pid": 47000,
+            "rss_kb": 142320,
+            "name": "WindowServer"
+          },
+          {
+            "pid": 53404,
+            "rss_kb": 707216,
+            "name": "Codex (Renderer)"
+          },
+          {
+            "pid": 90277,
+            "rss_kb": 332176,
+            "name": "Claude Helper (Renderer)"
+          },
+          {
+            "pid": 53169,
+            "rss_kb": 68496,
+            "name": "Codex (Service)"
+          },
+          {
+            "pid": 90269,
+            "rss_kb": 82848,
+            "name": "Claude Helper"
+          },
+          {
+            "pid": 46139,
+            "rss_kb": 135664,
+            "name": "com.apple.WebKit.WebContent"
+          },
+          {
+            "pid": 19496,
+            "rss_kb": 27760,
+            "name": "Quantumult X Tunnel"
+          },
+          {
+            "pid": 90647,
+            "rss_kb": 188336,
+            "name": "claude"
+          },
+          {
+            "pid": 83751,
+            "rss_kb": 81664,
+            "name": "WeChat"
+          },
+          {
+            "pid": 47254,
+            "rss_kb": 116288,
+            "name": "Feishu"
+          }
+        ]
+      },
+      "unit": "KB",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "medium",
+      "notes": "RSS 为驻留内存；不含 footprint；权限受限进程可能无法读取",
+      "evidence": {
+        "count": 10
+      }
+    },
+    {
+      "id": "gpu.name",
+      "category": "gpu",
+      "description": "GPU 名称",
+      "source": "system_profiler SPDisplaysDataType",
+      "status": "verified",
+      "value": "Apple M4",
+      "unit": "",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "集成 GPU，与系统共享统一内存",
+      "evidence": {
+        "raw": "Apple M4"
+      }
+    },
+    {
+      "id": "gpu.utilization",
+      "category": "gpu",
+      "description": "GPU 总利用率（%）",
+      "source": "ioreg PerformanceStatistics",
+      "status": "verified",
+      "value": {
+        "device_utilization": 42,
+        "renderer_utilization": 41,
+        "tiler_utilization": 42
+      },
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "medium",
+      "notes": "ioreg 快照；Device Utilization 为综合指标",
+      "evidence": {
+        "raw": "{\"In use system memory (driver)\"=0,\"Alloc system memory\"=2929655808,\"Tiler Utilization %\"=42,\"recoveryCount\"=0,\"lastRecoveryTime\"=0,\"Renderer Utilization %\"=41,\"TiledSceneBytes\"=1146880,\"Device Utiliz"
+      }
+    },
+    {
+      "id": "gpu.memory",
+      "category": "gpu",
+      "description": "GPU 内存用量/占用率（统一内存架构）",
+      "source": "ioreg PerformanceStatistics",
+      "status": "verified",
+      "value": {
+        "in_use_system_memory": 580042752,
+        "alloc_system_memory": 2929655808,
+        "note": "统一内存架构，无独立显存分母；值为驱动分配的系统内存"
+      },
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "medium",
+      "notes": "In use = 当前使用，Alloc = 驱动已分配；非全局 GPU 内存统计",
+      "evidence": {
+        "raw": "{\"In use system memory (driver)\"=0,\"Alloc system memory\"=2929655808,\"Tiler Utilization %\"=42,\"recoveryCount\"=0,\"lastRecoveryTime\"=0,\"Renderer Utilization %\"=41,\"TiledSceneBytes\"=1146880,\"Device Utiliz"
+      }
+    },
+    {
+      "id": "disk.inventory",
+      "category": "disk",
+      "description": "物理磁盘清单",
+      "source": "diskutil list/info -plist",
+      "status": "verified",
+      "value": [
+        {
+          "id": "disk0",
+          "name": "APPLE SSD AP0256Z",
+          "bus": "Apple Fabric",
+          "internal": true,
+          "size_bytes": 251000193024,
+          "smart": "Verified"
+        },
+        {
+          "id": "disk4",
+          "name": "ZHITAI TiPlus7100 1TB",
+          "bus": "PCI-Express",
+          "internal": false,
+          "size_bytes": 1024209543168,
+          "smart": "Verified"
+        }
+      ],
+      "unit": "",
+      "sampled_at": "2026-09-11T03:50:55Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态清单；SMARTStatus 为摘要，非温度/通电/磨损",
+      "evidence": {
+        "count": 2
+      }
+    },
+    {
+      "id": "disk.throughput",
+      "category": "disk",
+      "description": "物理盘读写速率（MB/s）",
+      "source": "iostat -d -c 2 -w 1",
+      "status": "verified",
+      "value": {
+        "disks": [
+          {
+            "device": "disk0",
+            "kb_per_transfer": 0.0,
+            "tps": 0.0,
+            "mb_per_sec": 0.0
+          },
+          {
+            "device": "disk10",
+            "kb_per_transfer": 0.0,
+            "tps": 0.0,
+            "mb_per_sec": 0.0
+          },
+          {
+            "device": "disk12",
+            "kb_per_transfer": 0.0,
+            "tps": 0.0,
+            "mb_per_sec": 0.0
+          },
+          {
+            "device": "disk14",
+            "kb_per_transfer": 0.0,
+            "tps": 0.0,
+            "mb_per_sec": 0.0
+          }
+        ],
+        "total_mb_per_sec": 0.0
+      },
+      "unit": "MB/s",
+      "sampled_at": "2026-09-11T03:50:56Z",
+      "sample_window_ms": 1000,
+      "confidence": "medium",
+      "notes": "iostat 差分，第二次采样值，按盘拆分",
+      "evidence": {
+        "raw": "    0.00    0  0.00     0.00    0  0.00     0.00    0  0.00     0.00    0  0.00"
+      }
+    },
+    {
+      "id": "disk.volume_capacity",
+      "category": "disk",
+      "description": "卷容量与物理盘/容器关系",
+      "source": "diskutil apfs list -plist",
+      "status": "verified",
+      "value": [
+        {
+          "container_ref": "disk1",
+          "physical_store": "disk0s1",
+          "capacity_ceiling": 524288000,
+          "capacity_in_use": null,
+          "capacity_free": 306548736,
+          "volumes": [
+            {
+              "id": "disk1s1",
+              "name": "iSCPreboot",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 105644032
+            },
+            {
+              "id": "disk1s2",
+              "name": "xART",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 6311936
+            },
+            {
+              "id": "disk1s3",
+              "name": "Hardware",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 1441792
+            },
+            {
+              "id": "disk1s4",
+              "name": "Recovery",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 99385344
+            }
+          ]
+        },
+        {
+          "container_ref": "disk2",
+          "physical_store": "disk0s3",
+          "capacity_ceiling": 5368664064,
+          "capacity_in_use": null,
+          "capacity_free": 2882158592,
+          "volumes": [
+            {
+              "id": "disk2s1",
+              "name": "Recovery",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 2463739904
+            },
+            {
+              "id": "disk2s2",
+              "name": "Update",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 3018752
+            }
+          ]
+        },
+        {
+          "container_ref": "disk3",
+          "physical_store": "disk0s2",
+          "capacity_ceiling": 245107195904,
+          "capacity_in_use": null,
+          "capacity_free": 151438159872,
+          "volumes": [
+            {
+              "id": "disk3s1",
+              "name": "Macintosh HD",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 12457586688
+            },
+            {
+              "id": "disk3s2",
+              "name": "Preboot",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 8740810752
+            },
+            {
+              "id": "disk3s3",
+              "name": "Recovery",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 1272918016
+            },
+            {
+              "id": "disk3s4",
+              "name": "Update",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 756211712
+            },
+            {
+              "id": "disk3s5",
+              "name": "Data",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 70304210944
+            },
+            {
+              "id": "disk3s6",
+              "name": "VM",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 20480
+            }
+          ]
+        },
+        {
+          "container_ref": "disk5",
+          "physical_store": "disk4s2",
+          "capacity_ceiling": 1023999787008,
+          "capacity_in_use": null,
+          "capacity_free": 776032980992,
+          "volumes": [
+            {
+              "id": "disk5s1",
+              "name": "SSD - Data",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 204828729344
+            },
+            {
+              "id": "disk5s2",
+              "name": "SSD",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 17078476800
+            },
+            {
+              "id": "disk5s3",
+              "name": "Update",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 12566528
+            },
+            {
+              "id": "disk5s4",
+              "name": "Preboot",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 17999253504
+            },
+            {
+              "id": "disk5s5",
+              "name": "Recovery",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 2469629952
+            },
+            {
+              "id": "disk5s6",
+              "name": "VM",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 5368729600
+            }
+          ]
+        },
+        {
+          "container_ref": "disk7",
+          "physical_store": "disk6",
+          "capacity_ceiling": 4194304,
+          "capacity_in_use": null,
+          "capacity_free": 3149824,
+          "volumes": [
+            {
+              "id": "disk7s1",
+              "name": "Creedence11M6270.SECUREPKITRUSTSTOREASSETS_SECUREPKITRUSTSTORE_Cryptex",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 692224
+            }
+          ]
+        },
+        {
+          "container_ref": "disk9",
+          "physical_store": "disk8",
+          "capacity_ceiling": 197132288,
+          "capacity_in_use": null,
+          "capacity_free": 11300864,
+          "volumes": [
+            {
+              "id": "disk9s1",
+              "name": "RevivalC13M302153.UC_SPEECH_ASR_TRANSCRIPTION_CMN_GENERIC_H16G_Cryptex",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 184385536
+            }
+          ]
+        },
+        {
+          "container_ref": "disk11",
+          "physical_store": "disk10",
+          "capacity_ceiling": 679477248,
+          "capacity_in_use": null,
+          "capacity_free": 27160576,
+          "volumes": [
+            {
+              "id": "disk11s1",
+              "name": "RevivalC13M302302.UC_SIRI_ASR_ASSISTANT_EN_US_EN_US_MAC_H16G_Cryptex",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 649330688
+            }
+          ]
+        },
+        {
+          "container_ref": "disk13",
+          "physical_store": "disk12",
+          "capacity_ceiling": 608174080,
+          "capacity_in_use": null,
+          "capacity_free": 25079808,
+          "volumes": [
+            {
+              "id": "disk13s1",
+              "name": "RevivalC13M302323.UC_SIRI_ASR_ASSISTANT_ZH_CN_ZH_CN_MAC_H16G_Cryptex",
+              "role": null,
+              "mount_point": null,
+              "capacity_consumed": 580186112
+            }
+          ]
+        }
+      ],
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "APFS 容器共享空间，容量已用按容器统计，卷容量为消耗值",
+      "evidence": {
+        "count": 8
+      }
+    },
+    {
+      "id": "disk.temperature",
+      "category": "disk",
+      "description": "磁盘温度",
+      "source": "SMART/NVMe 健康接口",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "SMART Verified 摘要不是温度；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "disk.power_on_hours",
+      "category": "disk",
+      "description": "磁盘通电时间",
+      "source": "SMART/NVMe 健康接口",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "hours",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "thermal.cpu",
+      "category": "thermal",
+      "description": "CPU 温度",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "powermetrics thermal 为 pressure 非摄氏温度；SMC 接口需验证；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "thermal.gpu",
+      "category": "thermal",
+      "description": "GPU 温度",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "fan.rpm",
+      "category": "fan",
+      "description": "风扇转速",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "rpm",
+      "sampled_at": "2026-09-11T03:50:57Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "无风扇设备应标记为不适用；当前未实现",
+      "evidence": {}
+    }
+  ],
+  "summary": {
+    "verified": 11,
+    "partial": 0,
+    "blocked_permission": 0,
+    "unavailable": 0,
+    "error": 0,
+    "not_implemented": 6,
+    "blockers": []
+  }
+}

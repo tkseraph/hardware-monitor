@@ -1,0 +1,321 @@
+{
+  "report_version": "0.1",
+  "generated_at": "2026-09-11T03:24:36Z",
+  "host": {
+    "model": "Mac16,10",
+    "chip": "Apple M4",
+    "os_version": "26.5.2",
+    "build": "25F84",
+    "arch": "arm64",
+    "memory_bytes": 17179869184,
+    "cpu_physical_cores": 10,
+    "cpu_logical_cores": 10,
+    "cpu_perf_levels": [
+      {
+        "name": "Performance",
+        "physical": 4,
+        "logical": 4
+      },
+      {
+        "name": "Efficiency",
+        "physical": 6,
+        "logical": 6
+      }
+    ]
+  },
+  "permissions": {
+    "mode": "normal",
+    "enhanced_authorized": false,
+    "enhanced_available": false,
+    "notes": "普通权限运行，未提权，未安装增强组件"
+  },
+  "probes": [
+    {
+      "id": "cpu.topology",
+      "category": "cpu",
+      "description": "CPU 拓扑：物理/逻辑核心数、性能等级",
+      "source": "sysctl hw.physicalcpu hw.logicalcpu hw.nperflevels",
+      "status": "verified",
+      "value": {
+        "physical_cores": 10,
+        "logical_cores": 10,
+        "perf_levels": [
+          {
+            "name": "Performance",
+            "physical": 4,
+            "logical": 4
+          },
+          {
+            "name": "Efficiency",
+            "physical": 6,
+            "logical": 6
+          }
+        ]
+      },
+      "unit": "count",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态拓扑；P/E 映射到具体逻辑处理器索引未验证",
+      "evidence": {
+        "raw": "phys=10 logical=10 perf_levels=2"
+      }
+    },
+    {
+      "id": "cpu.total_usage",
+      "category": "cpu",
+      "description": "CPU 总占用率（%）",
+      "source": "mach_host_processor_info 或 sysinfo",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需两次采样差分；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "cpu.per_core_usage",
+      "category": "cpu",
+      "description": "每逻辑处理器占用率（%）",
+      "source": "mach_host_processor_info 或 sysinfo",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需两次采样差分；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "memory.total",
+      "category": "memory",
+      "description": "物理内存总量",
+      "source": "sysctl hw.memsize",
+      "status": "verified",
+      "value": 17179869184,
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态总量",
+      "evidence": {
+        "raw": "17179869184"
+      }
+    },
+    {
+      "id": "memory.used_available",
+      "category": "memory",
+      "description": "内存已用/可用（动态）",
+      "source": "host_statistics64 或 sysinfo",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需明确 wired/active/compressed 等口径；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "memory.process_rank",
+      "category": "memory",
+      "description": "进程内存排行（footprint/RSS）",
+      "source": "libproc 或 sysinfo",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需处理权限受限进程；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "gpu.name",
+      "category": "gpu",
+      "description": "GPU 名称",
+      "source": "system_profiler SPDisplaysDataType",
+      "status": "verified",
+      "value": "Apple M4",
+      "unit": "",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "集成 GPU，与系统共享统一内存",
+      "evidence": {
+        "raw": "Apple M4"
+      }
+    },
+    {
+      "id": "gpu.utilization",
+      "category": "gpu",
+      "description": "GPU 总利用率（%）",
+      "source": "IOKit IOReport 或 powermetrics",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "%",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "普通权限 IOKit 候选；powermetrics 需验证权限与开销；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "gpu.memory",
+      "category": "gpu",
+      "description": "GPU 内存用量/占用率（统一内存架构）",
+      "source": "IOKit/Metal/系统统计",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "bytes/%",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "统一内存，无独立显存分母；需验证全局统计来源；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "disk.inventory",
+      "category": "disk",
+      "description": "物理磁盘清单",
+      "source": "diskutil list/info -plist",
+      "status": "verified",
+      "value": [
+        {
+          "id": "disk0",
+          "name": "APPLE SSD AP0256Z",
+          "bus": "Apple Fabric",
+          "internal": true,
+          "size_bytes": 251000193024,
+          "smart": "Verified"
+        },
+        {
+          "id": "disk4",
+          "name": "ZHITAI TiPlus7100 1TB",
+          "bus": "PCI-Express",
+          "internal": false,
+          "size_bytes": 1024209543168,
+          "smart": "Verified"
+        }
+      ],
+      "unit": "",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "high",
+      "notes": "静态清单；SMARTStatus 为摘要，非温度/通电/磨损",
+      "evidence": {
+        "count": 2
+      }
+    },
+    {
+      "id": "disk.throughput",
+      "category": "disk",
+      "description": "物理盘读写速率（MB/s）",
+      "source": "IOKit 存储统计",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "bytes_per_second",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需验证 IOKit 计数器；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "disk.volume_capacity",
+      "category": "disk",
+      "description": "卷容量与物理盘/容器关系",
+      "source": "diskutil apfs list / statfs",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "bytes",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "需处理 APFS 共享空间；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "disk.temperature",
+      "category": "disk",
+      "description": "磁盘温度",
+      "source": "SMART/NVMe 健康接口",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "SMART Verified 摘要不是温度；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "disk.power_on_hours",
+      "category": "disk",
+      "description": "磁盘通电时间",
+      "source": "SMART/NVMe 健康接口",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "hours",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "thermal.cpu",
+      "category": "thermal",
+      "description": "CPU 温度",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "powermetrics thermal 为 pressure 非摄氏温度；SMC 接口需验证；当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "thermal.gpu",
+      "category": "thermal",
+      "description": "GPU 温度",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "celsius",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "当前未实现",
+      "evidence": {}
+    },
+    {
+      "id": "fan.rpm",
+      "category": "fan",
+      "description": "风扇转速",
+      "source": "SMC / IOKit 传感器",
+      "status": "not_implemented",
+      "value": null,
+      "unit": "rpm",
+      "sampled_at": "2026-09-11T03:24:36Z",
+      "sample_window_ms": 0,
+      "confidence": "low",
+      "notes": "无风扇设备应标记为不适用；当前未实现",
+      "evidence": {}
+    }
+  ],
+  "summary": {
+    "verified": 4,
+    "partial": 0,
+    "blocked_permission": 0,
+    "unavailable": 0,
+    "error": 0,
+    "not_implemented": 13,
+    "blockers": []
+  }
+}

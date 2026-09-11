@@ -1,0 +1,18 @@
+# Build artifacts
+monitor-app/src-tauri/target/
+monitor-app/node_modules/
+monitor-app/dist/
+
+# Local diagnostic / test data (never commit real user history)
+*.db
+*.db-wal
+*.db-shm
+docs/probes/reports/
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
