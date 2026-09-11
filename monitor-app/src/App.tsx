@@ -922,15 +922,16 @@ export function ProcessesPage() {
           <button ref={cancelRef} disabled={sending} onClick={() => cancelConfirm(true)}>{t("Cancel")}</button>
           <button className="danger-button" disabled={sending} onClick={endProcess}>{t(sending ? "Requesting…" : "Confirm termination")}</button>
         </div>}
+        <div className="process-table-wrapper">
         <table className="process-table">
           <thead>
             <tr>
-              <th>PID</th>
-              <th>{t("Name")}</th>
-              <th>{t("Memory")}</th>
-              <th>CPU %</th>
-              <th>{t("Read/s")}</th>
-              <th>{t("Write/s")}</th>
+              <th scope="col">PID</th>
+              <th scope="col">{t("Name")}</th>
+              <th scope="col">{t("Memory")}</th>
+              <th scope="col">CPU %</th>
+              <th scope="col">{t("Read/s")}</th>
+              <th scope="col">{t("Write/s")}</th>
             </tr>
           </thead>
           <tbody>
@@ -950,6 +951,7 @@ export function ProcessesPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
