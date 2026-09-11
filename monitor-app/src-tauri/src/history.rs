@@ -76,28 +76,33 @@ impl HistoryDb {
         Ok(())
     }
 
+    /// S0 stop-loss (F01): aggregation into 10s/60s buckets is NOT yet
+    /// implemented, so deleting raw samples older than 1h would silently
+    /// destroy history. Until S4 lands real aggregation, we retain raw
+    /// samples for the full 7-day window and skip bucket cleanup (buckets
+    /// are empty anyway). This trades disk growth for not losing data;
+    /// S4 will reintroduce tiered deletion only after aggregation is
+    /// verified idempotent and complete.
     pub fn cleanup_old_data(&self) -> SqlResult<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
 
-        // Keep raw samples for 1 hour
-        let one_hour_ago = now - 3600;
+        // Retain raw samples for the full retention window (7 days) until
+        // aggregation exists. See F01 in docs/reviews/2026-09-11-code-review.md.
+        let seven_days_ago = now - 604800;
         self.conn.execute(
             "DELETE FROM metric_samples WHERE timestamp < ?1",
-            [one_hour_ago],
+            [seven_days_ago],
         )?;
 
-        // Keep 10s buckets for 24 hours
-        let one_day_ago = now - 86400;
+        // Bucket tables are never written to yet; deleting from them is a
+        // no-op but kept harmless for when S4 introduces aggregation.
         self.conn.execute(
             "DELETE FROM metric_buckets_10s WHERE bucket_start < ?1",
-            [one_day_ago],
+            [seven_days_ago],
         )?;
-
-        // Keep 60s buckets for 7 days
-        let seven_days_ago = now - 604800;
         self.conn.execute(
             "DELETE FROM metric_buckets_60s WHERE bucket_start < ?1",
             [seven_days_ago],
@@ -109,8 +114,15 @@ impl HistoryDb {
 
 pub static DB: Mutex<Option<HistoryDb>> = Mutex::new(None);
 
+/// Resolve the data directory. Tests and isolated acceptance runs set
+/// MONITOR_DATA_DIR to a throwaway path so they never touch the real
+/// user history (F27). Production leaves it unset and uses app_data_dir.
 pub fn init_db(app_data_dir: PathBuf) -> SqlResult<()> {
-    let db_path = app_data_dir.join("monitor.db");
+    let dir = std::env::var_os("MONITOR_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or(app_data_dir);
+    std::fs::create_dir_all(&dir).ok();
+    let db_path = dir.join("monitor.db");
     let db = HistoryDb::new(db_path)?;
     *DB.lock().unwrap() = Some(db);
     Ok(())
