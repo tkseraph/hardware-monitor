@@ -141,7 +141,8 @@ def main():
                 "t_secs": round(elapsed, 1),
                 "samples_found": len(tree),
                 "procs": [
-                    {"pid": r["pid"], "cpu": r["cpu"], "rss_kb": r["rss_kb"],
+                    {"pid": r["pid"], "comm": os.path.basename(r["comm"]),
+                     "cpu": r["cpu"], "rss_kb": r["rss_kb"],
                      "threads": threads.get(r["pid"])}
                     for r in tree
                 ],
