@@ -1,11 +1,11 @@
 import { storageUsage } from "./storage-usage";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
 const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
-Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。"});
+Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。", "Selection left the current list; select it again.": "所选进程已不在当前列表中，请重新选择。"});
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
 interface CpuInfo {
@@ -821,17 +821,35 @@ export function ProcessesPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [loadError, setLoadError] = useState(false);
-  const [selected, setSelected] = useState<ProcessInfo | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [ending, setEnding] = useState(false);
   const [terminationMessage, setTerminationMessage] = useState("");
+
+  // R8 termination state machine. The target is an immutable snapshot taken at
+  // confirm time; later list refreshes can never mutate what would be killed.
+  type TermState =
+    | { phase: "idle" }
+    | { phase: "selected"; target: ProcessInfo }
+    | { phase: "confirming"; target: ProcessInfo }
+    | { phase: "sending"; target: ProcessInfo };
+  const [term, setTerm] = useState<TermState>({ phase: "idle" });
+  const selected = term.phase === "idle" ? null : term.target;
+  const confirming = term.phase === "confirming" || term.phase === "sending";
+  const sending = term.phase === "sending";
+  const endButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  const cancelConfirm = (restoreFocus: boolean) => {
+    setTerm((prev) => (prev.phase === "confirming" || prev.phase === "sending" ? { phase: "selected", target: prev.target } : prev));
+    if (restoreFocus) endButtonRef.current?.focus();
+  };
+
   const endProcess = async () => {
-    if (!selected || ending) return;
-    setEnding(true);
+    if (term.phase !== "confirming") return; // only a confirming target can be sent
+    const target = term.target; // immutable snapshot
+    setTerm({ phase: "sending", target });
     try {
-      await invoke("terminate_process", { pid: selected.pid, startMarker: selected.start_marker });
+      await invoke("terminate_process", { pid: target.pid, startMarker: target.start_marker });
       setTerminationMessage(t("Termination requested; process may still be running."));
-      setSelected(null);
+      setTerm({ phase: "idle" });
     } catch (error) {
       const messages: Record<string, string> = {
         protected: "This process is protected.", gone: "Process already exited.",
@@ -839,7 +857,8 @@ export function ProcessesPage() {
         permission: "Permission denied; only your own processes can be ended.",
       };
       setTerminationMessage(t(messages[String(error)] ?? "Failed to request termination."));
-    } finally { setEnding(false); setConfirming(false); }
+      setTerm({ phase: "idle" });
+    }
   };
 
   // R6: debounce the search so each keystroke does not trigger a re-scan.
@@ -882,6 +901,35 @@ export function ProcessesPage() {
   }, [debouncedSearch, sortBy, pageIndex, pageSize]);
 
   const processes = page?.processes ?? [];
+
+  // R8 staleness guard: whenever the visible list, the filter/sort/page, or the
+  // load state changes, a selected/confirming target that is no longer present
+  // in the current page is cancelled — a stale selection can never be sent.
+  useEffect(() => {
+    if (term.phase === "idle") return;
+    if (loadError) { setTerm({ phase: "idle" }); return; }
+    const present = processes.some(
+      (p) => p.pid === term.target.pid && p.start_marker === term.target.start_marker
+    );
+    if (!present) {
+      setTerm({ phase: "idle" });
+      setTerminationMessage(t("Selection left the current list; select it again."));
+    }
+  }, [processes, loadError, term]);
+
+  // Esc cancels an open confirm dialog.
+  useEffect(() => {
+    if (!confirming) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cancelConfirm(true); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirming]);
+
+  // Default focus to Cancel when the dialog opens (safe default).
+  useEffect(() => {
+    if (confirming) cancelRef.current?.focus();
+  }, [confirming]);
+
   // R6: unknown rate (None) renders "—"; a never-zero fake is never shown.
   const fmtRate = (proc: ProcessInfo, bps: number | null) =>
     !proc.io_ok ? t("Unreadable") : bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
@@ -932,15 +980,15 @@ export function ProcessesPage() {
           </select>
         </div>
         <div className="process-actions">
-          <button className="danger-button" disabled={!selected || ending || loadError} onClick={() => setConfirming(true)}>{t("End process")}</button>
+          <button ref={endButtonRef} className="danger-button" disabled={!selected || confirming || loadError} onClick={() => selected && setTerm({ phase: "confirming", target: selected })}>{t("End process")}</button>
           <span>{selected ? `${selected.name} · PID ${selected.pid}` : t("Select a process")}</span>
         </div>
         {terminationMessage && <p role="status" className="note">{terminationMessage}</p>}
         {confirming && selected && <div className="confirm-panel" role="alertdialog" aria-modal="false" aria-labelledby="end-title" aria-describedby="end-description">
           <h3 id="end-title">{t("End process")}: {selected.name} · PID {selected.pid}</h3>
           <p id="end-description">{t("Unsaved work may be lost. Send SIGTERM without force or elevation?")}</p>
-          <button autoFocus disabled={ending} onClick={() => setConfirming(false)}>{t("Cancel")}</button>
-          <button className="danger-button" disabled={ending} onClick={endProcess}>{t(ending ? "Requesting…" : "Confirm termination")}</button>
+          <button ref={cancelRef} disabled={sending} onClick={() => cancelConfirm(true)}>{t("Cancel")}</button>
+          <button className="danger-button" disabled={sending} onClick={endProcess}>{t(sending ? "Requesting…" : "Confirm termination")}</button>
         </div>}
         <table className="process-table">
           <thead>
@@ -960,7 +1008,7 @@ export function ProcessesPage() {
             {processes.map((proc) => (
               <tr key={`${proc.pid}-${proc.start_marker}`} className={selected?.pid === proc.pid && selected.start_marker === proc.start_marker ? "selected" : ""}>
 
-                <td><input type="radio" name="selected-process" aria-label={`${t("Select a process")}: ${proc.name} PID ${proc.pid}`} disabled={confirming || ending} checked={selected?.pid === proc.pid && selected.start_marker === proc.start_marker} onChange={() => {setSelected(proc); setTerminationMessage("");}} />{proc.pid}</td>
+                <td><input type="radio" name="selected-process" aria-label={`${t("Select a process")}: ${proc.name} PID ${proc.pid}`} disabled={confirming} checked={selected?.pid === proc.pid && selected.start_marker === proc.start_marker} onChange={() => {setTerm({ phase: "selected", target: proc }); setTerminationMessage("");}} />{proc.pid}</td>
                 <td>{proc.name}</td>
                 <td>{formatBytes(proc.memory_bytes)}</td>
                 <td>{proc.cpu_usage.toFixed(1)}%</td>
