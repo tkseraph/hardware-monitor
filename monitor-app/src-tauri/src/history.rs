@@ -20,15 +20,23 @@ const BUCKET_10S_TTL_SECS: i64 = 86_400;
 /// 60s bucket (and pre-aggregation raw) retention — the full 7-day window.
 const RETENTION_SECS: i64 = 604_800;
 
+/// R1a disk-budget stop-loss: when the database file grows past this many
+/// bytes, new history *writes* stop and the over-budget flag is raised so the
+/// UI can warn. Existing data is never deleted to get back under budget, and
+/// reads keep working. 512 MiB is far above any realistic 7-day tiered history.
+const DB_BUDGET_BYTES: i64 = 512 * 1024 * 1024;
+
 pub struct HistoryDb {
     conn: Connection,
+    /// File path for on-disk DBs (None for in-memory test DBs).
+    path: Option<PathBuf>,
 }
 
 impl HistoryDb {
     pub fn new(db_path: PathBuf) -> SqlResult<Self> {
-        let conn = Connection::open(db_path)?;
+        let conn = Connection::open(&db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
-        let db = Self { conn };
+        let db = Self { conn, path: Some(db_path) };
         db.init_schema()?;
         Ok(db)
     }
@@ -37,9 +45,41 @@ impl HistoryDb {
     #[cfg(test)]
     pub fn new_in_memory() -> SqlResult<Self> {
         let conn = Connection::open_in_memory()?;
-        let db = Self { conn };
+        let db = Self { conn, path: None };
         db.init_schema()?;
         Ok(db)
+    }
+
+    /// Current on-disk size in bytes (0 for in-memory / unknown).
+    fn disk_bytes(&self) -> i64 {
+        self.path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len() as i64)
+            .unwrap_or(0)
+    }
+
+    /// True when the DB file has exceeded the safety budget. Insert paths
+    /// refuse new rows; reads and aggregation continue.
+    pub fn over_budget(&self) -> bool {
+        self.over_budget_with(DB_BUDGET_BYTES)
+    }
+
+    /// Budget check with an injectable threshold (bytes) for deterministic tests.
+    fn over_budget_with(&self, budget_bytes: i64) -> bool {
+        self.disk_bytes() > budget_bytes
+    }
+
+    /// Insert with an injectable budget for deterministic tests.
+    #[cfg(test)]
+    pub fn insert_sample_with_budget(&self, metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64, budget_bytes: i64) -> SqlResult<()> {
+        if self.over_budget_with(budget_bytes) {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+                Some("history disk budget exceeded; writes paused".to_string()),
+            ));
+        }
+        self.insert_sample_at(metric_id, object_id, value, unit, timestamp)
     }
 
     fn init_schema(&self) -> SqlResult<()> {
@@ -95,6 +135,14 @@ impl HistoryDb {
     }
 
     pub fn insert_sample_at(&self, metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64) -> SqlResult<()> {
+        // R1a disk-budget stop-loss: refuse new rows when over budget rather
+        // than growing the file unboundedly. Existing data is untouched.
+        if self.over_budget() {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+                Some("history disk budget exceeded; writes paused".to_string()),
+            ));
+        }
         self.conn.execute(
             "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit) VALUES (?1, ?2, ?3, ?4, ?5)",
             (timestamp, metric_id, object_id, value, unit),

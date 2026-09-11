@@ -201,3 +201,32 @@ fn aggregation_conserves_across_all_boundary_offsets() {
         }
     }
 }
+
+/// R1a disk-budget stop-loss: with an injectable budget of 0 bytes, every
+/// write is refused (error, not silent drop) and existing rows are never
+/// deleted to get back under budget. Reads keep working. Temp file removed.
+#[test]
+fn over_budget_pauses_writes_but_keeps_data() {
+    use std::env::temp_dir;
+    let mut path = temp_dir();
+    path.push(format!("monitor-budget-test-{}.db", std::process::id()));
+
+    let db = HistoryDb::new(path.clone()).unwrap();
+    // Under the default (large) budget, writes succeed.
+    db.insert_sample_at("cpu.total_usage", "system", 1.0, "%", 1000).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM metric_samples"), 1);
+
+    // With an injectable budget of 0 bytes, the file is over budget: writes fail.
+    let err = db.insert_sample_with_budget("cpu.total_usage", "system", 2.0, "%", 1001, 0);
+    assert!(err.is_err(), "over-budget write must error, not silently drop");
+    // Existing data is NOT deleted to get back under budget.
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM metric_samples"), 1, "over-budget must not delete existing rows");
+    // Reads still work.
+    let pts = db.query_range_at("cpu.total_usage", "system", 0, 2000, 100, 2000).unwrap();
+    assert_eq!(pts.len(), 1, "reads continue while over budget");
+
+    drop(db);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
