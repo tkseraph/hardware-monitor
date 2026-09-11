@@ -1,0 +1,87 @@
+# Mac-first CI for the hardware monitor (R13).
+#
+# Gates: rustfmt, Clippy (warnings = errors), TypeScript types, Node unit
+# tests, Rust unit tests, and the Python probe privacy/status contract tests.
+#
+# Hard safety constraints (per the remediation plan): CI must NEVER run real
+# login-item registration, trigger system sleep, or send real process
+# termination. All covered behavior is exercised through synthetic fixtures,
+# temp dirs, and in-memory databases only.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Allow manual runs without a push.
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: frontend (types + node tests)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: monitor-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: monitor-app/package-lock.json
+
+      # Deterministic install from the lockfile; never resolves "latest".
+      - name: install (locked)
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: node unit tests
+        run: npm test
+
+  rust:
+    name: rust (fmt + clippy strict + tests)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: monitor-app/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      # Strict: every warning is a build failure so new lints can't regress.
+      - name: clippy (strict)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: rust unit tests
+        run: cargo test --locked
+
+      # Tauri needs these to *compile* on macOS runners; tests themselves use
+      # fixtures only. No app is launched, no login item touched, no sleep.
+      - name: build check (release, unsigned)
+        run: cargo build --locked --release
+
+  probes:
+    name: probe privacy/status contract (synthetic)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Synthetic decoy fixtures only. The contract test asserts forbidden
+      # fields are dropped and timeouts never leak embedded output (A14/A25).
+      - name: probe contract tests
+        run: python3 scripts/probes/test_probe_privacy.py
