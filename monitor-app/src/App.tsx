@@ -322,26 +322,9 @@ function OverviewPage({ systemInfo }: { systemInfo: SystemInfo }) {
             <span>{t("Memory:")} {formatBytes(systemInfo.gpu.memory_used_bytes)}</span>
           </div>
         </div>
-
-        <div className="card hero-card">
-          <div className="card-header">
-            <Icon name="disk" />
-            <div>
-              <h3>{t("Disks")}</h3>
-              <small>{systemInfo.disks.length} {t("Disks")}</small>
-            </div>
-          </div>
-          <div className="big-value">
-            {systemInfo.disk_throughput.filter((t) => t.mb_per_sec > 0).length}
-          </div>
-          <div className="progress-bar">
-            <div className="progress" style={{ width: `${(systemInfo.disk_throughput.filter((t) => t.mb_per_sec > 0).length / Math.max(systemInfo.disks.length, 1)) * 100}%` }}></div>
-          </div>
-          <div className="info-row">
-            <span>{t("Active I/O:")}</span>
-          </div>
-        </div>
       </div>
+
+      <StorageOverview storage={systemInfo.storage} />
     </div>
   );
 }
