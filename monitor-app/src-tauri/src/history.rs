@@ -134,6 +134,9 @@ impl HistoryDb {
         Ok(())
     }
 
+    /// Single-row insert. Used by tests and the budget/late-sample paths; the
+    /// production sampler writes whole snapshots via insert_samples_batch.
+    #[allow(dead_code)]
     pub fn insert_sample_at(&self, metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64) -> SqlResult<()> {
         // R1a disk-budget stop-loss: refuse new rows when over budget rather
         // than growing the file unboundedly. Existing data is untouched.
@@ -500,7 +503,9 @@ pub enum HistoryHealth {
 
 static HEALTH: Mutex<HistoryHealth> = Mutex::new(HistoryHealth::Ok);
 
-/// Current history-write health for the UI / status line.
+/// Current history-write health for the UI / status line. Consumed by the R4
+/// source-health DTO and IPC; not yet read by the running app.
+#[allow(dead_code)]
 pub fn health() -> HistoryHealth {
     *HEALTH.lock().unwrap()
 }
@@ -510,14 +515,9 @@ fn set_health(h: HistoryHealth) {
 }
 
 /// Resolve the data directory. Tests and isolated acceptance runs set
-/// MONITOR_DATA_DIR to a throwaway path so they never touch the real
-/// user history (F27). Production leaves it unset and uses app_data_dir.
-pub fn init_db(app_data_dir: PathBuf) -> SqlResult<()> {
-    let dir = std::env::var_os("MONITOR_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or(app_data_dir);
-    std::fs::create_dir_all(&dir).ok();
-    let db_path = dir.join("monitor.db");
+/// Initialize against an explicit, already-resolved DB path so the whole
+/// app shares one DataPaths decision (R3) — no second read of MONITOR_DATA_DIR.
+pub fn init_db_at(db_path: PathBuf) -> SqlResult<()> {
     match HistoryDb::new(db_path) {
         Ok(db) => {
             *DB.lock().unwrap() = Some(db);
@@ -533,14 +533,6 @@ pub fn init_db(app_data_dir: PathBuf) -> SqlResult<()> {
             Err(e)
         }
     }
-}
-
-/// Record a sample stamped with the moment the source observed it (F11).
-pub fn record_sample_at(metric_id: &str, object_id: &str, value: f64, unit: &str, timestamp: i64) -> SqlResult<()> {
-    if let Some(ref db) = *DB.lock().unwrap() {
-        db.insert_sample_at(metric_id, object_id, value, unit, timestamp)?;
-    }
-    Ok(())
 }
 
 /// R2/A05: record a whole snapshot atomically; update health on the result.

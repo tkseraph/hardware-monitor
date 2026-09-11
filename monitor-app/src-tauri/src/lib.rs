@@ -2,7 +2,9 @@ use tauri::{Manager, WindowEvent};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 
+mod data_paths;
 mod history;
+mod instance;
 mod loginitem;
 mod parse;
 mod processes;
@@ -137,17 +139,53 @@ pub fn run() {
         )?;
       }
 
-      // Initialize history database. R2/A05: a failure degrades to "realtime
-      // ok, history unavailable" — the app keeps running and sampling; it does
-      // NOT panic, and never creates a substitute empty DB over user data.
-      if let Ok(app_data_dir) = app.path().app_data_dir() {
-        let _ = std::fs::create_dir_all(&app_data_dir);
-        if let Err(e) = history::init_db(app_data_dir.clone()) {
-          log::error!("history DB init failed; continuing without history: {:?}", e);
+      // Resolve the single data root once (R3/A07): MONITOR_DATA_DIR isolation
+      // applies to BOTH the DB and settings; the real app_data_dir is not
+      // touched when the override is set.
+      let paths = match app.path().app_data_dir() {
+        Ok(dir) => match data_paths::DataPaths::resolve(dir) {
+          Ok(p) => Some(p),
+          Err(e) => {
+            log::error!("failed to resolve data dir: {:?}", e);
+            None
+          }
+        },
+        Err(e) => {
+          log::error!("no app data dir: {:?}", e);
+          None
         }
-        settings::init(app_data_dir);
+      };
+
+      // Single-instance guard (R3/A08): keyed by the canonical data dir. A
+      // second instance on the SAME dir does not sample; a different
+      // MONITOR_DATA_DIR gets an independent lock and may run in parallel.
+      let acquired = paths.as_ref().and_then(|p| {
+        match instance::try_acquire(&p.lock_path()) {
+          Ok(instance::Acquire::Acquired(lock)) => Some(lock),
+          Ok(instance::Acquire::AlreadyRunning) => {
+            log::warn!("another instance owns this data dir; sampling disabled");
+            None
+          }
+          Err(e) => {
+            log::error!("instance lock error: {:?}", e);
+            None
+          }
+        }
+      });
+      let is_primary = acquired.is_some() || paths.is_none();
+
+      // Initialize history DB + settings from the shared DataPaths. A DB
+      // failure degrades to "realtime ok, history unavailable" (R2/A05): the
+      // app keeps sampling; it does not panic or create a substitute empty DB.
+      if let Some(p) = &paths {
+        if is_primary {
+          if let Err(e) = history::init_db_at(p.db_path()) {
+            log::error!("history DB init failed; continuing without history: {:?}", e);
+          }
+        }
+        settings::init(p.settings_dir());
       } else {
-        log::error!("no app data dir; history and settings persistence disabled");
+        log::error!("no data dir; history and settings persistence disabled");
       }
 
       // Create menu bar tray icon
@@ -195,18 +233,28 @@ pub fn run() {
 
       // Independent Rust scheduler: samples hardware on a cadence even when
       // the WebView is hidden/throttled, and is the only writer of history.
-      tauri::async_runtime::spawn(async {
-        sampler::run_scheduler().await;
-      });
+      // Only the primary instance (holding the data-dir lock) samples; a
+      // second instance on the same dir shows a window but does not double-write.
+      if is_primary {
+        tauri::async_runtime::spawn(async {
+          sampler::run_scheduler().await;
+        });
 
-      // Aggregation + retention pass every 60s. Aggregation into buckets is
-      // verified inside a transaction before any source row is deleted (F01).
-      tauri::async_runtime::spawn(async {
-        loop {
-          tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-          let _ = history::aggregate_and_prune();
-        }
-      });
+        // Aggregation + retention pass every 60s. Aggregation into buckets is
+        // verified inside a transaction before any source row is deleted (F01).
+        tauri::async_runtime::spawn(async {
+          loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            let _ = history::aggregate_and_prune();
+          }
+        });
+      }
+
+      // Keep the lock alive for the process lifetime by leaking it into a
+      // static holder; dropping it would release the lock prematurely.
+      if let Some(lock) = acquired {
+        std::mem::forget(lock);
+      }
 
       Ok(())
     })
