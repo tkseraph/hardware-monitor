@@ -326,6 +326,12 @@ pub fn record_snapshot(info: &SystemInfo) {
     for disk in &info.disk_throughput {
         let _ = history::record_sample_at("disk.throughput", &disk.device, disk.mb_per_sec as f64, "MB/s", ts);
     }
+    // Disk temperature into history (only real readings; absent stays absent).
+    for disk in &info.disks {
+        if let Some(t) = disk.temperature_celsius {
+            let _ = history::record_sample_at("disk.temperature", &disk.device, t as f64, "°C", ts);
+        }
+    }
 }
 
 // ---------- Shared scheduler state ----------

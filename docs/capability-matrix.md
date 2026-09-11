@@ -20,19 +20,19 @@
 | 指标 | 优先级 | Mac 优先计划：候选路径 / 已有证据 | Windows 延后参考：候选路径 / 已有证据 |
 | --- | --- | --- | --- |
 | CPU 名称、核心计数 | 基础清单 | 已验证静态：M4、10 核、4P+6E；sysctl/Mach/sysinfo | 截图确认 HX 370；CIM/系统拓扑/sysinfo 尚未实测 |
-| CPU 总/每逻辑处理器占用 | 基础 | iostat -c 差分已验证（20260911T034123Z 报告，总占用率 28%）；每核 host_processor_info/sysinfo 未实现 | 系统性能接口/sysinfo；未采样 |
+| CPU 总/每逻辑处理器占用 | 基础 | iostat -c 差分与 sysinfo 逐核均已实现；Rust 调度器按前台 1s/后台 3s 持续采样，关窗不停采 | 系统性能接口/sysinfo；未采样 |
 | 核心分组与映射 | 详情目标 | P/E 数量已知，逐核心身份映射未验证，不能假定索引范围 | 系统拓扑与效率类别待查；不能仅凭型号将 Zen 核心分组当 Apple P/E |
 | GPU 名称 | 基础清单 | system_profiler 已识别 M4 | 截图确认 Radeon 890M；DXGI/设备清单待测 |
 | GPU 总利用率 | 基础 | ioreg PerformanceStatistics 已验证（20260911T034334Z 报告，Device Utilization 27%）；IOKit IOReport/powermetrics 未验证 | GPU Engine 系统计数器/WDDM 路径；实例映射与最忙引擎口径待测 |
 | GPU 内存用量/容量/预算 | 基础但须适配架构 | ioreg PerformanceStatistics 已验证（20260911T034334Z 报告，In use 1.04GB / Alloc 3.85GB）；统一内存，无独立显存分母 | GPU Adapter Memory 等候选；8 GB 截图值不是独立显存芯片证明；专用/共享/预算口径待测 |
 | 系统内存总/已用/可用 | 基础 | 总量 16 GiB 已验证静态；memory_pressure + sysctl 动态口径已验证（20260911T034123Z 报告，used 74.06%）；进程内存排行未实现 | 安装 64 GB、系统可使用 55.6 GB 来自截图；GlobalMemoryStatusEx/性能接口/sysinfo 待测 |
-| 进程内存排行 | 基础配套 | ps -A -o pid,rss,comm -r 已验证（20260911T035054Z 报告，Top 10 RSS）；不含 footprint；权限受限进程可能无法读取 | 进程内存 API/sysinfo；工作集/私有内存及权限范围待测 |
-| 进程存储读写排行 | 基础配套 | libproc rusage 相关统计候选；差分、权限和存储含义待测 | 存储事件/计数来源待验证；不能把 GetProcessIoCounters 的全部 I/O 当纯存储 |
+| 进程内存排行 | 基础配套 | 已实现：sysinfo 枚举 + 全体可读进程排序/搜索/分页；内存为 RSS。不含 footprint；权限受限进程无法读取时该进程不进入列表 | 进程内存 API/sysinfo；工作集/私有内存及权限范围待测 |
+| 进程存储读写排行 | 基础配套 | **已实现（普通权限）**：proc_pid_rusage(RUSAGE_INFO_V4) 累计磁盘读写字节，按 (pid, 启动标记) 差分得速率；系统范围、不按盘归因（D-009）；PID 重用在差分基线中分离 | 存储事件/计数来源待验证；不能把 GetProcessIoCounters 的全部 I/O 当纯存储 |
 | 物理盘名称/容量 | 基础清单 | 已识别两块 SSD 及字节容量；设备编号是本次枚举值，不是永久身份 | 截图仅有 2.77 TB 汇总；物理盘数量/型号待测 |
-| 卷容量与盘/容器/卷关系 | 基础 | diskutil apfs list -plist 已验证（20260911T034529Z 报告，8 容器）；APFS 共享空间按容器统计，卷容量为消耗值 | 存储 IOCTL、卷盘区映射、容量 API；未探测 |
+| 卷容量与盘/容器/卷关系 | 基础 | 已实现：物理盘→APFS 容器→卷三层拓扑，按容器归属到物理盘；共享容量按容器统计一次，卷容量为消耗值不重复累计 | 存储 IOCTL、卷盘区映射、容量 API；未探测 |
 | 物理盘读写 MB/s | 基础 | iostat -d 按盘拆分已验证（20260911T034529Z 报告，4 盘设备）；需过滤非物理盘（disk10/12/14） | PhysicalDisk/存储性能接口候选；未采样 |
 | CPU/GPU 摄氏温度 | 优先增强 | 普通权限不可用（20260911T035248Z 报告）；powermetrics 需 root；SMC 私有 API 需 IOKit | LHM/厂商接口候选；可能涉及驱动；未验证 |
-| 磁盘温度/通电时间 | 优先增强 | 普通权限不可用（20260911T035248Z 报告）；diskutil 仅提供 SMART Verified 摘要；NVMe SMART 需专用工具或增强权限 | 存储协议/健康接口、合规候选库；未取得数值 |
+| 磁盘温度/通电时间 | 优先增强 | **已实现（普通权限）**：diskutil `SMARTDeviceSpecificKeysMayVaryNotGuaranteed` 的 TEMPERATURE（Kelvin 转换，0-150°C 范围校验）与 POWER_ON_HOURS_0；温度已进入历史曲线。多段高字节字段（POWER_ON_HOURS_1）未验证 | 存储协议/健康接口、合规候选库；未取得数值 |
 | 磁盘健康/寿命磨损 | 优先增强 | 普通权限不可用（20260911T035248Z 报告）；SMART Verified 摘要非健康详情；磨损、寿命百分比需增强权限 | SMART/NVMe 或系统可靠性计数候选；未验证 |
 | 风扇转速 | 可选 | 不适用（20260911T035248Z 报告）；Mac mini M4 无风扇；ioreg 未见风扇传感器 | 主板/EC/LHM 候选；未验证 |
 | CPU/GPU 频率、功耗、电压 | 后续，易获取项可提前 | 帮助列出 cpu_power/gpu_power；功耗说明为估计；频率/电压与温度均需分别验证 | 系统/厂商/LHM 候选；当前型号与安全配置支持未知 |
