@@ -57,6 +57,8 @@
 
 当前产物为**本地 ad-hoc 签名**。`codesign --verify --deep --strict` 通过，但 ad-hoc 不提供开发者身份信任链，Gatekeeper 在首次打开时仍会提示。要广泛分发需 Developer ID + 公证，这涉及账号/证书，须单独授权。
 
-构建可复现：`bash scripts/build-release.sh`（完整构建 → 修复签名 → 打 DMG → 校验 → 输出 SHA-256）。
+构建可复现：`bash scripts/build-release.sh`。R13 起为原子发布：完整构建 → 修复签名 → 打 DMG 到**staging 名** → 校验 → 由 `scripts/gen-manifest.py` 生成溯源 manifest → 仅在全部通过后才把上版 DMG 改名为 `.prev.dmg` 并将 staging 原子换入最终名。失败构建不会触碰既有最终产物。
 
-最终 DMG SHA-256：`304c9f87c8ceafce73c82dc2cad6e4a5dc5d660a75a420bddcd2c890cbe7e55e`（含 2026-09-12 对比度、存储容量与确认式 SIGTERM 修正；ad-hoc 签名和 DMG 校验通过）
+manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc/cargo/node/npm 版本、单元测试计数、签名类型与 SHA-256；**不记录**本机目录、主机名、用户名或任何设备标识（符合隐私扫描约束）。
+
+最终 DMG SHA-256：`304c9f87c8ceafce73c82dc2cad6e4a5dc5d660a75a420bddcd2c890cbe7e55e`（含 2026-09-12 对比度、存储容量与确认式 SIGTERM 修正；ad-hoc 签名和 DMG 校验通过）。本次 R13 未重建 DMG，故哈希对应上一构建产物；下次执行 `build-release.sh` 后此处与 manifest 会同步刷新。

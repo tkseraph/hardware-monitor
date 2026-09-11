@@ -1,5 +1,7 @@
 # 总览存储设备区 Implementation Plan
 
+> **状态：已实施并取代（2026-09-12）。** 对应 SDD 任务 39–44 已完成；后续改动以 R 系列整改计划为准，本计划不再作为执行依据。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在总览页展示每块 SSD 的名称、占用率（按容器计一次）与温度（实时值 + 迷你走势）。
