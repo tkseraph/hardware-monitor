@@ -28,3 +28,4 @@ plist = "1.6"
 regex = "1.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
+libc = "0.2"

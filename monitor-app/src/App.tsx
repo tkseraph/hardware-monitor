@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
-const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Active I/O:": "有吞吐的设备", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Throughput:": "合计吞吐", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。"};
+const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Active I/O:": "有吞吐的设备", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Throughput:": "合计吞吐", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。"};
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
 
 interface CpuInfo {
@@ -44,10 +44,23 @@ interface DiskThroughput {
 
 interface ProcessInfo {
   pid: number;
+  start_marker: number;
   name: string;
   memory_bytes: number;
   cpu_usage: number;
+  disk_read_bytes: number;
+  disk_write_bytes: number;
+  disk_read_bps: number | null;
+  disk_write_bps: number | null;
 }
+
+interface ProcessPage {
+  processes: ProcessInfo[];
+  total_readable: number;
+  observed_at: number;
+}
+
+type ProcessSortKey = "memory" | "cpu" | "diskread" | "diskwrite";
 
 interface VolumeInfo {
   id: string;
@@ -561,34 +574,46 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
 
 function ProcessesPage() {
   const t = useText();
-  const [processes, setProcesses] = useState<ProcessInfo[]>([]);
-  const [sortBy, setSortBy] = useState<"memory" | "cpu">("memory");
+  const [page, setPage] = useState<ProcessPage | null>(null);
+  const [sortBy, setSortBy] = useState<ProcessSortKey>("memory");
   const [searchTerm, setSearchTerm] = useState("");
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchProcesses = async () => {
       try {
-        const procs = await invoke<ProcessInfo[]>("get_processes");
-        setProcesses(procs);
+        // Backend filters + sorts + paginates over the FULL readable set,
+        // so search and CPU/disk sort are not limited to a memory top-50.
+        const result = await invoke<ProcessPage>("get_processes", {
+          search: searchTerm || null,
+          sort: sortBy,
+          offset: 0,
+          limit: 50,
+        });
+        if (!cancelled) {
+          setPage(result);
+          setLoadError(false);
+        }
       } catch (err) {
+        if (!cancelled) {
+          setLoadError(true);
+        }
         console.error("Failed to fetch processes:", err);
       }
     };
 
     fetchProcesses();
     const interval = setInterval(fetchProcesses, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [searchTerm, sortBy]);
 
-  const sortedProcesses = [...processes]
-    .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    .sort((a, b) => {
-      if (sortBy === "memory") {
-        return b.memory_bytes - a.memory_bytes;
-      } else {
-        return b.cpu_usage - a.cpu_usage;
-      }
-    });
+  const processes = page?.processes ?? [];
+  const fmtRate = (bps: number | null) =>
+    bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
 
   return (
     <div>
@@ -603,20 +628,26 @@ function ProcessesPage() {
             className="search-input"
           />
           <div className="sort-buttons">
-            <button
-              className={sortBy === "memory" ? "active" : ""}
-              onClick={() => setSortBy("memory")}
-            >
+            <button className={sortBy === "memory" ? "active" : ""} onClick={() => setSortBy("memory")}>
               {t("Sort by Memory")}
             </button>
-            <button
-              className={sortBy === "cpu" ? "active" : ""}
-              onClick={() => setSortBy("cpu")}
-            >
+            <button className={sortBy === "cpu" ? "active" : ""} onClick={() => setSortBy("cpu")}>
               {t("Sort by CPU")}
+            </button>
+            <button className={sortBy === "diskread" ? "active" : ""} onClick={() => setSortBy("diskread")}>
+              {t("Sort by Read")}
+            </button>
+            <button className={sortBy === "diskwrite" ? "active" : ""} onClick={() => setSortBy("diskwrite")}>
+              {t("Sort by Write")}
             </button>
           </div>
         </div>
+        {page && (
+          <p className="note">
+            {t("Showing")} {processes.length} {t("of")} {page.total_readable} {t("readable processes (system-wide disk I/O)")}
+          </p>
+        )}
+        {loadError && <p className="note">{t("Failed to load processes")}</p>}
         <table className="process-table">
           <thead>
             <tr>
@@ -624,16 +655,22 @@ function ProcessesPage() {
               <th>{t("Name")}</th>
               <th>{t("Memory")}</th>
               <th>CPU %</th>
+              <th>{t("Read/s")}</th>
+              <th>{t("Write/s")}</th>
             </tr>
           </thead>
           <tbody>
-            {sortedProcesses.length === 0 && <tr><td colSpan={4}>{t("No matching processes")}</td></tr>}
-            {sortedProcesses.map((proc) => (
-              <tr key={proc.pid}>
+            {processes.length === 0 && !loadError && (
+              <tr><td colSpan={6}>{t("No matching processes")}</td></tr>
+            )}
+            {processes.map((proc) => (
+              <tr key={`${proc.pid}-${proc.start_marker}`}>
                 <td>{proc.pid}</td>
                 <td>{proc.name}</td>
                 <td>{formatBytes(proc.memory_bytes)}</td>
                 <td>{proc.cpu_usage.toFixed(1)}%</td>
+                <td>{fmtRate(proc.disk_read_bps)}</td>
+                <td>{fmtRate(proc.disk_write_bps)}</td>
               </tr>
             ))}
           </tbody>

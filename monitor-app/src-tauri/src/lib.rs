@@ -1,12 +1,10 @@
-use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use sysinfo::System;
 use tauri::{Manager, WindowEvent};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 
 mod history;
 mod parse;
+mod processes;
 mod query;
 mod sampler;
 mod storage;
@@ -16,42 +14,52 @@ mod history_test;
 
 pub use sampler::SystemInfo;
 
-/// Process enumeration uses its own System instance so refreshing it never
-/// perturbs the CPU differential baseline owned by the sampler (F10).
-static PROCESS_SYSTEM: Mutex<Option<System>> = Mutex::new(None);
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProcessInfo {
-    pub pid: u32,
-    pub name: String,
-    pub memory_bytes: u64,
-    pub cpu_usage: f32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProcessSort {
+    Memory,
+    Cpu,
+    DiskRead,
+    DiskWrite,
 }
 
+/// Scan, then filter/sort/paginate on the FULL readable set — never
+/// truncate before filtering, which previously hid low-memory high-CPU
+/// processes from a CPU sort (F13).
 #[tauri::command]
-async fn get_processes() -> Result<Vec<ProcessInfo>, String> {
-    let mut sys_guard = PROCESS_SYSTEM.lock().map_err(|e| e.to_string())?;
-    if sys_guard.is_none() {
-        *sys_guard = Some(System::new());
+async fn get_processes(
+    search: Option<String>,
+    sort: Option<ProcessSort>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<processes::ProcessPage, String> {
+    let mut page = processes::scan_processes()?;
+
+    // Filter by name or PID substring over the full set.
+    if let Some(q) = search.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
+        page.processes.retain(|p| {
+            p.name.to_lowercase().contains(&q) || p.pid.to_string().contains(&q)
+        });
     }
 
-    let mut processes = Vec::new();
-    if let Some(ref mut sys) = *sys_guard {
-        // Refresh only processes, not CPU — the sampler owns CPU state.
-        sys.refresh_processes();
-        for (pid, process) in sys.processes() {
-            processes.push(ProcessInfo {
-                pid: pid.as_u32(),
-                name: process.name().to_string(),
-                memory_bytes: process.memory(),
-                cpu_usage: process.cpu_usage(),
-            });
-        }
-        // Sort by memory descending, then truncate to top 50.
-        processes.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes));
-        processes.truncate(50);
+    // Sort the filtered full set.
+    match sort.unwrap_or(ProcessSort::Memory) {
+        ProcessSort::Memory => page.processes.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes)),
+        ProcessSort::Cpu => page.processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)),
+        ProcessSort::DiskRead => page.processes.sort_by(|a, b| {
+            b.disk_read_bps.unwrap_or(0.0).partial_cmp(&a.disk_read_bps.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal)
+        }),
+        ProcessSort::DiskWrite => page.processes.sort_by(|a, b| {
+            b.disk_write_bps.unwrap_or(0.0).partial_cmp(&a.disk_write_bps.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal)
+        }),
     }
-    Ok(processes)
+
+    // Paginate after sort.
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(50).min(500);
+    page.processes = page.processes.into_iter().skip(offset).take(limit).collect();
+
+    Ok(page)
 }
 
 #[tauri::command]
