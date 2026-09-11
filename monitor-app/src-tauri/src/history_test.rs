@@ -668,3 +668,67 @@ fn batch_insert_is_atomic() {
     let _ = std::fs::remove_file(path.with_extension("db-wal"));
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
+
+/// R14 virtual clock: a sample older than the full 7-day retention window is
+/// pruned, while one just inside the window is conserved (as a bucket).
+#[test]
+fn samples_older_than_seven_days_are_pruned() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    const RETENTION: i64 = 604_800;
+
+    let old_ts = now - RETENTION - 120; // 8+ days old → must be pruned
+    let kept_ts = now - RETENTION + 3600; // ~7 days minus 1h → conserved
+    ins(&db, old_ts, "cpu.total_usage", "system", 5.0);
+    ins(&db, kept_ts, "cpu.total_usage", "system", 7.0);
+
+    db.aggregate_and_prune_at(now).unwrap();
+
+    let remaining_raw = count(&db, "SELECT COUNT(*) FROM metric_samples");
+    let remaining_buckets = count(&db, "SELECT COUNT(*) FROM metric_buckets");
+    // The old sample is gone entirely; the recent one survives as a bucket.
+    assert_eq!(remaining_raw, 0, "no raw rows should remain after aggregation");
+    assert_eq!(remaining_buckets, 1, "only the in-window sample is conserved");
+    let total_val: f64 = {
+        // The surviving bucket must carry the kept sample's value, not the
+        // pruned one (conservation of the right data). Single sample ⇒ avg == 7.
+        db.avg_for_test("SELECT COALESCE(SUM(avg_value*sample_count),0) FROM metric_buckets")
+    };
+    assert_eq!(total_val, 7.0, "kept sample conserved; pruned sample gone");
+}
+
+/// R14 virtual clock: a long sampling gap (app off for 2 days) does not lose
+/// the pre-gap data and does not fabricate points for the gap. After restart,
+/// aggregation conserves exactly the samples that were actually recorded.
+#[test]
+fn long_gap_conserves_pre_gap_data_without_fabrication() {
+    let db = HistoryDb::new_in_memory().unwrap();
+    let now = crate::history::test_now();
+    let gap_secs = 2 * 86_400; // app off for 2 days
+
+    // 10 samples just before the gap.
+    let base = now - gap_secs - 60;
+    for i in 0..10 {
+        ins(&db, base + i, "cpu.total_usage", "system", 1.0);
+    }
+    // 10 samples after the gap (recent).
+    for i in 0..10 {
+        ins(&db, now - 60 + i, "cpu.total_usage", "system", 3.0);
+    }
+
+    db.aggregate_and_prune_at(now).unwrap();
+
+    // Nothing is lost: every recorded sample is in raw or a bucket.
+    let conserved = count(&db, "SELECT COUNT(*) FROM metric_samples")
+        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+    assert_eq!(conserved, 20, "pre-gap + post-gap samples all conserved");
+
+    // No points fabricated for the 2-day gap: query a strictly-empty region in
+    // the middle of the gap (well clear of both clusters) and expect zero.
+    let mid_start = base + 100; // just after the pre-gap cluster (ends base+9)
+    let mid_end = now - 100; // just before the post-gap cluster (starts now-60)
+    let gap_points = db
+        .query_range_at("cpu.total_usage", "system", mid_start, mid_end, 100, now)
+        .unwrap();
+    assert!(gap_points.is_empty(), "no fabricated points in the gap");
+}
