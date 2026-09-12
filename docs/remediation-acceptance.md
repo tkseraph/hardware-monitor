@@ -61,4 +61,9 @@
 
 manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc/cargo/node/npm 版本、单元测试计数、签名类型与 SHA-256；**不记录**本机目录、主机名、用户名或任何设备标识（符合隐私扫描约束）。
 
-最终 DMG SHA-256：`e84d964ab64aaf863ef22a7a4d25838e6b89009b9bdaff931d6b596c310f0860`（`monitor_0.1.0_arm64.dmg`，source commit `7fe2619`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
+最终 DMG SHA-256：`e7a47e17abd1f66a244618752cec4f6668f3c1f0ae2c5696c7557f85d34fa7ad`（`monitor_0.1.0_arm64.dmg`，source commit `b0da9ad`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
+
+
+### GPU 查询截断修复
+
+全量 IORegistry 输出超过 4 MiB 捕获上限时，PerformanceStatistics 被截断，导致整轮采样失败。改为限定 IOAccelerator 节点查询；本机输出约 72 KB，三个 GPU 必需字段齐全。完整只读采样实测通过；81 项 Rust 回归通过，1 项本机硬件测试默认忽略并已单独执行通过，严格 Clippy 通过。新包构建与严格签名校验通过，manifest 与 DMG 哈希一致；本次未声称打包窗口端到端实测。
