@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { downsamplePreserveExtremes, gapThresholdSecs } from "./history-hooks";
+import { temperatureSegments, gapThresholdSecs } from "./history-data";
 import type { HistoryStatus } from "./history-hooks";
 import "./temperature-trend.css";
 
@@ -9,18 +9,14 @@ export function TemperatureTrend({ history, status, label, english = false, end 
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const start = end - 3600;
-  const points = downsamplePreserveExtremes(history.filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v) && t >= start && t <= end), 400);
+  const points = history.filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v) && t >= start && t <= end);
   const values = points.map(([, v]) => v);
   // At least 20°C of vertical range: tiny changes must not look dramatic.
   const low = values.length ? Math.floor(Math.min(...values) / 10) * 10 - 10 : 0;
   const high = values.length ? Math.max(low + 20, Math.ceil(Math.max(...values) / 10) * 10 + 10) : 20;
   const x = (t: number) => (t - start) / 3600 * 1000;
   const y = (v: number) => 10 + (high - v) / (high - low) * 100;
-  const segments: Point[][] = [];
-  points.forEach((p, i) => {
-    if (!i || p[0] - points[i - 1][0] > gapThresholdSecs(3600)) segments.push([]);
-    segments[segments.length - 1].push(p);
-  });
+  const segments = temperatureSegments(points, gapThresholdSecs(3600));
   const active = selected === null ? undefined : points.find(([t]) => t === selected);
   const describe = ([t, v]: Point) => `${new Date(t * 1000).toLocaleTimeString(english ? "en-GB" : "zh-CN", { hour12: false })} · ${v.toFixed(1)} °C`;
   const heading = english ? "Temperature trend" : "温度趋势";
