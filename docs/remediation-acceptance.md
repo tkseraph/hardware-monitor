@@ -61,7 +61,7 @@
 
 manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc/cargo/node/npm 版本、单元测试计数、签名类型与 SHA-256；**不记录**本机目录、主机名、用户名或任何设备标识（符合隐私扫描约束）。
 
-最终 DMG SHA-256：`f82b65f24b11df2ac2c2174e86c13a25d4b2dfab1478f05cbbc714142f682fd7`（`monitor_0.1.0_arm64.dmg`，source commit `338cfcf`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
+最终 DMG SHA-256：`699e7e2729cbfdae6ab17eb59eedefee67fda9ea2e856dba652677d8c1cf58d3`（`monitor_0.1.0_arm64.dmg`，source commit `cd18a9d`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
 
 
 ### GPU 查询截断修复
@@ -72,3 +72,8 @@ manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc
 ### 温度曲线假断点修复
 
 对 IPC 返回的历史点先按真实时间缺口分段，再分别降采样；读数选择使用未经过前端降采样的记录。连续平温 1801 点仅绘制一条路径，含一个真实缺口的数据绘制两段；浏览器验证键盘/悬停读数、缺口不显示读数，控制台无错误。临时合成测试页面已删除，不包含在正式产物中。Node 13 项测试通过，修复版构建和严格 ad-hoc 签名检查通过。未启动或停止用户正在运行的实例，未修改历史数据。
+
+
+### Dock 恢复窗口修复
+
+补充 macOS RunEvent::Reopen 处理。Dock、菜单栏左键及 Show 菜单统一恢复现有主窗口：show → unminimize → set_focus，并恢复前台采集节奏；不因 has_visible_windows 跳过最小化恢复。关闭窗口仍隐藏而不退出。Rust 81 项测试通过（本机硬件测试默认忽略），Clippy 严格和 rustfmt 检查通过；app/DMG 重建、内层 arm64/严格签名及 manifest 源码/哈希检查通过。未执行 macOS Dock 实际点击自动化验收，浏览器预览不覆盖该原生事件；未停止或重启用户实例。
