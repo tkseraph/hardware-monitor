@@ -16,8 +16,9 @@
 # authorized step.
 set -euo pipefail
 
-cd "$(dirname "$0")/../monitor-app"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT/monitor-app"
 
 VERSION="$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
 ARCH="$(uname -m)"
