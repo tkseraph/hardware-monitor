@@ -1,3 +1,5 @@
+import { useTheme } from "./theme-hook";
+import type { ThemePreference } from "./theme";
 import { TemperatureTrend } from "./TemperatureTrend";
 import { storageUsage } from "./storage-usage";
 import { useHistoryQuery, downsamplePreserveExtremes, gapThresholdSecs } from "./history-hooks";
@@ -175,6 +177,7 @@ export function diskUsagePercent(disk: PhysicalDisk): number | null {
 }
 
 function App() {
+  const [theme, setTheme] = useTheme();
   const [language, setLanguage] = useState<Language>(() => localStorage.getItem("monitor-language") === "en" ? "en" : "zh");
   const zh = language === "zh";
   useEffect(() => { localStorage.setItem("monitor-language", language); document.documentElement.lang = zh ? "zh-CN" : "en"; }, [language, zh]);
@@ -236,7 +239,7 @@ function App() {
         <div className="sidebar-footer"><span className="privacy-dot" />{zh ? "本地采集 · 隐私优先" : "Local & private"}<small>MONITOR / macOS</small></div>
       </nav>
       <main className="content">
-        <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><select aria-label={zh ? "界面语言" : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></header>
+        <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><div className="topbar-controls"><label className="theme-control"><span>{zh ? "外观" : "Appearance"}</span><select aria-label={zh ? "外观模式" : "Appearance mode"} value={theme} onChange={e => setTheme(e.target.value as ThemePreference)}><option value="system">{zh ? "跟随系统" : "System"}</option><option value="light">{zh ? "浅色" : "Light"}</option><option value="dark">{zh ? "深色" : "Dark"}</option></select></label><select aria-label={zh ? "界面语言" : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></div></header>
         <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : isStale ? (zh ? "数据可能过期" : "Data may be stale") : systemInfo ? (zh ? "实时采集中" : "Collecting") : (zh ? "等待采样" : "Waiting")}</span></section>
         {isStale && !error && <div className="note" role="status">{zh ? `采集器已 ${snapshotAge} 秒未更新，显示的为最近成功读数。` : `Collector has not updated for ${snapshotAge}s; showing the last good reading.`}</div>}
         {historyDegraded && !error && <div className="note" role="status">{zh ? "历史记录暂不可用或已暂停写入；实时读数不受影响。" : "History is unavailable or paused; realtime readings are unaffected."}</div>}

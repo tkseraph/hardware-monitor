@@ -13,5 +13,5 @@
 .temperature-time{display:flex;justify-content:space-between;margin:8px 0 0 58px;font-size:11px}
 .temperature-trend footer{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;font-size:11px}
 .temperature-empty{color:var(--muted);margin:16px 0 4px}
-@media(prefers-color-scheme:dark){.temperature-trend{--trend-ink:#83baff;--trend-grid:#3c4a60}}
+:root[data-theme="dark"] .temperature-trend{--trend-ink:#83baff;--trend-grid:#3c4a60}
 @media(max-width:560px){.temperature-trend{padding:12px}.temperature-trend footer{align-items:flex-start;flex-direction:column}}
