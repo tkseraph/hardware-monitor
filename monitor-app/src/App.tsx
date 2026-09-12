@@ -1,3 +1,4 @@
+import { TemperatureTrend } from "./TemperatureTrend";
 import { storageUsage } from "./storage-usage";
 import { useHistoryQuery, downsamplePreserveExtremes, gapThresholdSecs } from "./history-hooks";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
@@ -496,18 +497,11 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
   );
 }
 
-// Per-disk temperature sparkline for the overview storage row. Returns
-// null when there is no history (or the fetch fails) so no empty frame
-// is rendered — honest absence, never a fabricated zero.
+// Overview temperature history: labelled axes, fixed one-hour window and honest gaps.
 export function TempSparkline({ historyKey, label }: { historyKey: string; label: string }) {
-  // Single-flight, hidden-tab-aware query keyed by the stable device uid (A10).
-  const { points: history } = useHistoryQuery("disk.temperature", historyKey, 3600);
-  if (history.length === 0) return null;
-  return (
-    <div className="chart--mini">
-      <Chart history={history} label={`temp-${label}`} unit="°C" gap_secs={gapThresholdSecs(3600)} />
-    </div>
-  );
+  const { points, status } = useHistoryQuery("disk.temperature", historyKey, 3600);
+  const language = useContext(LanguageContext);
+  return <TemperatureTrend key={historyKey} history={points} status={status} label={label} english={language === "en"} />;
 }
 
 function CpuPage({ cpu }: { cpu: CpuInfo }) {
