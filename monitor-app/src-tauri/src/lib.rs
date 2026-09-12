@@ -237,6 +237,27 @@ async fn terminate_process(pid: u32, start_marker: u64) -> Result<(), String> {
     termination::request(pid, start_marker)
 }
 
+/// All explicit reopen actions restore the existing window, never create a
+/// second window or restart the collector. macOS Dock clicks emit Reopen even
+/// when a minimized window is reported as visible, so do not gate on visibility.
+fn restore_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("cannot restore missing main window");
+        return;
+    };
+    if let Err(error) = window.show() {
+        log::warn!("cannot show main window: {error}");
+        return;
+    }
+    if let Err(error) = window.unminimize() {
+        log::warn!("cannot unminimize main window: {error}");
+    }
+    if let Err(error) = window.set_focus() {
+        log::warn!("cannot focus main window: {error}");
+    }
+    sampler::set_window_visible(true);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -322,12 +343,7 @@ pub fn run() {
                     "quit" => {
                         app.exit(0);
                     }
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
+                    "show" => restore_main_window(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -337,11 +353,7 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        restore_main_window(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -402,6 +414,12 @@ pub fn run() {
             set_settings,
             set_launch_at_login,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                restore_main_window(_app);
+            }
+        });
 }
