@@ -332,7 +332,9 @@ fn sample_gpu() -> Result<GpuInfo, String> {
 
     let stdout = crate::cmd::run(
         "/usr/sbin/ioreg",
-        &["-l", "-w", "0"],
+        // Query only GPU accelerator nodes. The full IORegistry can exceed
+        // the command adapter's 4 MiB cap before PerformanceStatistics appears.
+        &["-r", "-c", "IOAccelerator", "-l", "-w", "0"],
         crate::cmd::DEFAULT_TIMEOUT,
     )?
     .to_result()?;
@@ -551,6 +553,20 @@ pub async fn run_scheduler() {
 #[cfg(test)]
 mod tests {
     use super::parse_iostat_cumulative_mb;
+
+    /// Explicit opt-in, read-only hardware smoke test; never writes history,
+    /// registers login items, or starts the scheduler. Not run in CI.
+    #[test]
+    #[ignore = "requires local macOS hardware; explicit read-only diagnostic"]
+    fn live_snapshot_collection_succeeds() {
+        let mut sampler = super::Sampler::new();
+        let snapshot = sampler
+            .sample()
+            .expect("read-only hardware collection failed");
+        assert!(snapshot.memory.total_bytes > 0);
+        assert!(snapshot.gpu.utilization.is_finite());
+        assert!(snapshot.observed_at > 0);
+    }
 
     const TWO_DISKS: &str = "              disk0               disk1 \n    KB/t xfrs   MB     KB/t xfrs   MB \n    6.89 75957 510.89  5.00 100    20.5 \n";
 
