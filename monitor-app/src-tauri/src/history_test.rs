@@ -687,8 +687,14 @@ fn samples_older_than_seven_days_are_pruned() {
     let remaining_raw = count(&db, "SELECT COUNT(*) FROM metric_samples");
     let remaining_buckets = count(&db, "SELECT COUNT(*) FROM metric_buckets");
     // The old sample is gone entirely; the recent one survives as a bucket.
-    assert_eq!(remaining_raw, 0, "no raw rows should remain after aggregation");
-    assert_eq!(remaining_buckets, 1, "only the in-window sample is conserved");
+    assert_eq!(
+        remaining_raw, 0,
+        "no raw rows should remain after aggregation"
+    );
+    assert_eq!(
+        remaining_buckets, 1,
+        "only the in-window sample is conserved"
+    );
     let total_val: f64 = {
         // The surviving bucket must carry the kept sample's value, not the
         // pruned one (conservation of the right data). Single sample ⇒ avg == 7.
@@ -720,7 +726,10 @@ fn long_gap_conserves_pre_gap_data_without_fabrication() {
 
     // Nothing is lost: every recorded sample is in raw or a bucket.
     let conserved = count(&db, "SELECT COUNT(*) FROM metric_samples")
-        + count(&db, "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets");
+        + count(
+            &db,
+            "SELECT COALESCE(SUM(sample_count),0) FROM metric_buckets",
+        );
     assert_eq!(conserved, 20, "pre-gap + post-gap samples all conserved");
 
     // No points fabricated for the 2-day gap: query a strictly-empty region in
