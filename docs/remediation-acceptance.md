@@ -61,7 +61,7 @@
 
 manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc/cargo/node/npm 版本、单元测试计数、签名类型与 SHA-256；**不记录**本机目录、主机名、用户名或任何设备标识（符合隐私扫描约束）。
 
-最终 DMG SHA-256：`380d2bdeb0c174688be79dd78f0e36b9c2b90e059ad38ab04a28f1b87aee849f`（`monitor_0.1.0_arm64.dmg`，source commit `222817d`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
+最终 DMG SHA-256：`a4a90612a51786482de2e846fd0af65c8bd754d4854829171951ef539fba2a90`（`monitor_0.1.0_arm64.dmg`，source commit `2ac0c6d`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
 
 
 ### GPU 查询截断修复
@@ -82,3 +82,8 @@ manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc
 ### 外观模式切换发布
 
 右上角提供跟随系统、浅色、深色选项，使用本地 WebView 存储记忆选择，初次渲染前应用主题。浏览器已验证手动模式覆盖系统主题、系统模式动态跟随、刷新后保留、中英文及窄屏布局。温度曲线颜色跟随显式主题；补齐深色辅助文字对比度。Node 16 项、Rust 81 项测试通过（1 项本机硬件测试默认忽略），严格 Clippy、rustfmt、生产构建通过。发布源码为 `222817d`，dirty=false；DMG 内层 arm64、严格 ad-hoc 签名、资源与 manifest SHA 一致。未重启用户实例，未声称打包窗口端到端验收。
+
+
+### 总览硬盘默认顺序
+
+ZHITAI（含大小写变体或致态名称）优先展示，其他硬盘保持原有相对顺序。排序生成新数组，不改变采集结果、设备对象或历史关联。Node 19 项测试通过；浏览器使用明确标注的合成设备标签验证 ZHITAI 位于 Apple SSD 上方，控制台无错误。临时验证页已删除。app/DMG 重建和严格签名检查通过，manifest 为干净源码 `2ac0c6d`，与 DMG 哈希一致。
