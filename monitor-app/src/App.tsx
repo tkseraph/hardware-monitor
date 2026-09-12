@@ -1,3 +1,4 @@
+import { orderOverviewDisks } from "./storage-order";
 import { useTheme } from "./theme-hook";
 import type { ThemePreference } from "./theme";
 import { TemperatureTrend } from "./TemperatureTrend";
@@ -316,7 +317,7 @@ export function StorageOverview({ storage }: { storage: PhysicalDisk[] }) {
         </div>
       </div>
       <div className="storage-rows">
-        {storage.map((d) => (
+        {orderOverviewDisks(storage).map((d) => (
           <StorageRow key={d.device} disk={d} />
         ))}
       </div>
