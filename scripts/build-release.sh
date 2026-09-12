@@ -47,9 +47,6 @@ hdiutil create -volname "monitor" -srcfolder "$APP" -ov -format UDZO "$STAGING_D
 echo "== verifying staged DMG =="
 hdiutil verify "$STAGING_DMG" | tail -1
 
-echo "== generating manifest from staged artifact =="
-python3 "$REPO_ROOT/scripts/gen-manifest.py" "$STAGING_DMG" "$MANIFEST"
-
 echo "== atomic swap into final location =="
 # Keep the previous final DMG for rollback; only replace after staging verified.
 if [ -f "$FINAL_DMG" ]; then
@@ -57,6 +54,11 @@ if [ -f "$FINAL_DMG" ]; then
   echo "previous DMG kept as: $(basename "$PREV_DMG")"
 fi
 mv -f "$STAGING_DMG" "$FINAL_DMG"
+
+echo "== generating manifest from final artifact =="
+# Manifest is generated after the rename so the recorded artifact name matches
+# the final DMG; the file content (and thus its SHA-256) is unchanged by mv.
+python3 "$REPO_ROOT/scripts/gen-manifest.py" "$FINAL_DMG" "$MANIFEST"
 
 echo "== sha256 (final) =="
 shasum -a 256 "$FINAL_DMG"
