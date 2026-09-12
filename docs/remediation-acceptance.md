@@ -61,4 +61,4 @@
 
 manifest 记录 source commit、dirty 标记、app 版本、目标架构、rustc/cargo/node/npm 版本、单元测试计数、签名类型与 SHA-256；**不记录**本机目录、主机名、用户名或任何设备标识（符合隐私扫描约束）。
 
-最终 DMG SHA-256：`304c9f87c8ceafce73c82dc2cad6e4a5dc5d660a75a420bddcd2c890cbe7e55e`（含 2026-09-12 对比度、存储容量与确认式 SIGTERM 修正；ad-hoc 签名和 DMG 校验通过）。本次 R13 未重建 DMG，故哈希对应上一构建产物；下次执行 `build-release.sh` 后此处与 manifest 会同步刷新。
+最终 DMG SHA-256：`90eacf6cce12b358d414cfac3fa9ec6f1b9576a21da05fbe386eb4a491534e6b`（`monitor_0.1.0_arm64.dmg`，source commit `ef59c1b`，dirty=false；与 `monitor_0.1.0_arm64.manifest.json` 一致）。已对 DMG 内 `monitor.app` 实测：Mach-O arm64、`codesign --verify --deep --strict` 通过（ad-hoc）、资源齐全。上一版 DMG 保留为 `monitor_0.1.0_arm64.prev.dmg` 供回滚。
