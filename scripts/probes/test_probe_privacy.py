@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,12 +52,13 @@ class TestRunPrivacy(unittest.TestCase):
     def test_timeout_returns_error_code_not_output(self):
         # `sleep` exceeds the timeout; the result must carry only an error code,
         # never a serialized TimeoutExpired with embedded stdout.
-        r = probe.run(["sleep", "5"], timeout=1)
+        r = probe.run([sys.executable, "-c", "import time; print('synthetic secret', flush=True); time.sleep(5)"], timeout=0.2)
         self.assertEqual(r["exit_code"], -1)
         self.assertNotIn("TimeoutExpired", r["stderr"] + r["stdout"])
+        self.assertNotIn("synthetic secret", r["stderr"] + r["stdout"])
 
     def test_fast_command_unaffected(self):
-        r = probe.run(["/bin/echo", "ok"], timeout=5)
+        r = probe.run([sys.executable, "-c", "print('ok')"], timeout=5)
         self.assertEqual(r["exit_code"], 0)
         self.assertEqual(r["stdout"], "ok")
 

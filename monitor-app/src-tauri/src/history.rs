@@ -13,6 +13,68 @@ use rusqlite::{Connection, Result as SqlResult};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+#[cfg(test)]
+mod footprint_tests {
+    use super::*;
+    fn root() -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("monitor-footprint-{}-{stamp}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        root
+    }
+    #[test]
+    fn wal_and_shm_are_counted_and_prevent_new_rows() {
+        let root = root();
+        let path = root.join("synthetic.sqlite");
+        let db = HistoryDb::new(path.clone()).unwrap();
+        let main = std::fs::metadata(&path).unwrap().len() as i64;
+        assert!(db.disk_bytes().unwrap() > main);
+        let error = db
+            .insert_samples_batch_with_budget(100, &[("cpu.total_usage", "system", 5.0, "%")], main)
+            .unwrap_err();
+        assert_eq!(
+            error.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::DiskFull)
+        );
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM metric_samples", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn unknown_footprint_fails_closed_without_claiming_over_budget() {
+        let root = root();
+        let mut db = HistoryDb::new(root.join("real.sqlite")).unwrap();
+        db.path = Some(root.join("missing.sqlite"));
+        assert!(!db.over_budget());
+        let error = db
+            .insert_samples_batch(100, &[("cpu.total_usage", "system", 5.0, "%")])
+            .unwrap_err();
+        assert_eq!(
+            error.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::SystemIoFailure)
+        );
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM metric_samples", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// raw retention before aggregation to 10s buckets.
 const RAW_TTL_SECS: i64 = 3_600;
 /// 10s bucket retention before aggregation to 60s buckets.
@@ -21,9 +83,9 @@ const BUCKET_10S_TTL_SECS: i64 = 86_400;
 const RETENTION_SECS: i64 = 604_800;
 
 /// R1a disk-budget stop-loss: when the database file grows past this many
-/// bytes, new history *writes* stop and the over-budget flag is raised so the
+/// bytes across the main file, WAL and SHM, new history *writes* stop and the over-budget flag is raised so the
 /// UI can warn. Existing data is never deleted to get back under budget, and
-/// reads keep working. 512 MiB is far above any realistic 7-day tiered history.
+/// reads keep working. The budget is checked before each batch; one batch can cross the soft limit.
 const DB_BUDGET_BYTES: i64 = 512 * 1024 * 1024;
 
 pub struct HistoryDb {
@@ -53,24 +115,50 @@ impl HistoryDb {
         Ok(db)
     }
 
-    /// Current on-disk size in bytes (0 for in-memory / unknown).
-    fn disk_bytes(&self) -> i64 {
-        self.path
-            .as_ref()
-            .and_then(|p| std::fs::metadata(p).ok())
-            .map(|m| m.len() as i64)
-            .unwrap_or(0)
+    /// Total footprint of the main file and SQLite sidecars. Unknown is an error.
+    fn disk_bytes(&self) -> std::io::Result<i64> {
+        let Some(path) = &self.path else {
+            return Ok(0);
+        };
+        let mut total = 0u64;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(suffix);
+            match std::fs::metadata(PathBuf::from(name)) {
+                Ok(metadata) if metadata.is_file() => {
+                    total = total
+                        .checked_add(metadata.len())
+                        .ok_or_else(|| std::io::Error::other("history size overflow"))?;
+                }
+                Ok(_) => return Err(std::io::Error::other("history path is not a file")),
+                Err(error)
+                    if !suffix.is_empty() && error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        total
+            .try_into()
+            .map_err(|_| std::io::Error::other("history size overflow"))
     }
 
-    /// True when the DB file has exceeded the safety budget. Insert paths
-    /// refuse new rows; reads and aggregation continue.
     pub fn over_budget(&self) -> bool {
-        self.over_budget_with(DB_BUDGET_BYTES)
+        self.disk_bytes().is_ok_and(|size| size > DB_BUDGET_BYTES)
     }
 
-    /// Budget check with an injectable threshold (bytes) for deterministic tests.
-    fn over_budget_with(&self, budget_bytes: i64) -> bool {
-        self.disk_bytes() > budget_bytes
+    fn ensure_budget(&self, budget: i64) -> SqlResult<()> {
+        let size = self.disk_bytes().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR),
+                Some("history footprint unavailable; writes paused".into()),
+            )
+        })?;
+        if size > budget {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+                Some("history disk budget exceeded; writes paused".into()),
+            ));
+        }
+        Ok(())
     }
 
     /// Insert with an injectable budget for deterministic tests.
@@ -84,12 +172,7 @@ impl HistoryDb {
         timestamp: i64,
         budget_bytes: i64,
     ) -> SqlResult<()> {
-        if self.over_budget_with(budget_bytes) {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-                Some("history disk budget exceeded; writes paused".to_string()),
-            ));
-        }
+        self.ensure_budget(budget_bytes)?;
         self.insert_sample_at(metric_id, object_id, value, unit, timestamp)
     }
 
@@ -158,12 +241,7 @@ impl HistoryDb {
     ) -> SqlResult<()> {
         // R1a disk-budget stop-loss: refuse new rows when over budget rather
         // than growing the file unboundedly. Existing data is untouched.
-        if self.over_budget() {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-                Some("history disk budget exceeded; writes paused".to_string()),
-            ));
-        }
+        self.ensure_budget(DB_BUDGET_BYTES)?;
         self.conn.execute(
             "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit) VALUES (?1, ?2, ?3, ?4, ?5)",
             (timestamp, metric_id, object_id, value, unit),
@@ -202,12 +280,7 @@ impl HistoryDb {
         if rows.is_empty() {
             return Ok(());
         }
-        if self.over_budget_with(budget_bytes) {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-                Some("history disk budget exceeded; writes paused".to_string()),
-            ));
-        }
+        self.ensure_budget(budget_bytes)?;
         let tx = self.conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare(
@@ -399,6 +472,72 @@ impl HistoryDb {
     /// Results are merged by timestamp and de-duplicated, finer tier winning,
     /// so a sample present both as a raw row and inside a bucket is reported
     /// once. No points are fabricated for gaps.
+    pub fn query_view_at(
+        &self,
+        metric_id: &str,
+        object_id: &str,
+        start: i64,
+        end: i64,
+        max_points: usize,
+        now: i64,
+    ) -> SqlResult<crate::history_view::HistoryView> {
+        use crate::history_view::Point;
+        let mut merged = std::collections::BTreeMap::<i64, Point>::new();
+        let decode = |r: &rusqlite::Row<'_>| -> SqlResult<Point> {
+            Ok(Point {
+                t: r.get(0)?,
+                value: r.get(1)?,
+                min: r.get(2)?,
+                max: r.get(3)?,
+                count: r.get(4)?,
+                granularity_secs: r.get(5)?,
+                first_ts: r.get(6)?,
+                last_ts: r.get(7)?,
+            })
+        };
+        let mut insert = |point: Point| -> SqlResult<()> {
+            if !point.value.is_finite()
+                || !point.min.is_finite()
+                || !point.max.is_finite()
+                || point.min > point.max
+                || point.count == 0
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            match merged.get(&point.t) {
+                Some(old) if old.granularity_secs < point.granularity_secs => {}
+                _ => {
+                    merged.insert(point.t, point);
+                }
+            }
+            Ok(())
+        };
+        for (granularity, lo, hi) in [
+            (60, start, end.min(now - BUCKET_10S_TTL_SECS)),
+            (
+                10,
+                start.max(now - BUCKET_10S_TTL_SECS),
+                end.min(now - RAW_TTL_SECS),
+            ),
+        ] {
+            if lo >= hi {
+                continue;
+            }
+            let mut statement=self.conn.prepare("SELECT bucket_start,avg_value,min_value,max_value,sample_count,granularity_secs,first_ts,last_ts FROM metric_buckets WHERE metric_id=?1 AND object_id=?2 AND granularity_secs=?3 AND bucket_start+granularity_secs>?4 AND bucket_start<?5 ORDER BY bucket_start")?;
+            for row in statement.query_map((metric_id, object_id, granularity, lo, hi), decode)? {
+                insert(row?)?;
+            }
+        }
+        let mut statement=self.conn.prepare("SELECT timestamp,AVG(value),MIN(value),MAX(value),COUNT(*),1,timestamp,timestamp FROM metric_samples WHERE metric_id=?1 AND object_id=?2 AND timestamp>=?3 AND timestamp<?4 GROUP BY timestamp ORDER BY timestamp")?;
+        for row in statement.query_map((metric_id, object_id, start, end), decode)? {
+            insert(row?)?;
+        }
+        Ok(crate::history_view::project(
+            merged.into_values().collect(),
+            max_points,
+        ))
+    }
+
     pub fn query_range_at(
         &self,
         metric_id: &str,
@@ -482,15 +621,8 @@ impl HistoryDb {
             }
         }
 
-        let mut out: Vec<(i64, f64)> = merged.into_iter().map(|(ts, (v, _))| (ts, v)).collect();
-
-        // Downsample to max_points by uniform stride if we exceeded the cap.
-        if out.len() > max_points {
-            let stride = out.len().div_ceil(max_points);
-            out = out.into_iter().step_by(stride).collect();
-        }
-
-        Ok(out)
+        let out: Vec<(i64, f64)> = merged.into_iter().map(|(ts, (v, _))| (ts, v)).collect();
+        Ok(crate::history_view::legacy_points(out, max_points))
     }
 }
 
@@ -633,5 +765,62 @@ pub fn query_range(
         db.query_range(metric_id, object_id, start, end, max_points)
     } else {
         Ok(Vec::new())
+    }
+}
+
+pub fn query_view(
+    metric_id: &str,
+    object_id: &str,
+    start: i64,
+    end: i64,
+    max_points: usize,
+    now: i64,
+) -> SqlResult<crate::history_view::HistoryView> {
+    if let Some(db) = DB.lock().unwrap().as_ref() {
+        db.query_view_at(metric_id, object_id, start, end, max_points, now)
+    } else {
+        Err(rusqlite::Error::InvalidQuery)
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+    #[test]
+    fn same_second_samples_keep_count_average_and_extremes() {
+        let db = HistoryDb::new_in_memory().unwrap();
+        db.insert_sample_at("disk.temperature", "synthetic", 2.0, "C", 1000)
+            .unwrap();
+        db.insert_sample_at("disk.temperature", "synthetic", 10.0, "C", 1000)
+            .unwrap();
+        let view = db
+            .query_view_at("disk.temperature", "synthetic", 999, 1002, 2000, 1002)
+            .unwrap();
+        let point = &view.segments[0][0];
+        assert_eq!(point.count, 2);
+        assert_eq!(point.value, 6.0);
+        assert_eq!(point.min, 2.0);
+        assert_eq!(point.max, 10.0);
+        assert!(view.aggregated);
+    }
+    #[test]
+    fn legacy_query_preserves_last_and_spike_within_its_point_limit() {
+        let db = HistoryDb::new_in_memory().unwrap();
+        for i in 0..100 {
+            db.insert_sample_at(
+                "cpu.total_usage",
+                "system",
+                if i == 43 { 99.0 } else { 1.0 },
+                "%",
+                1000 + i,
+            )
+            .unwrap();
+        }
+        let points = db
+            .query_range_at("cpu.total_usage", "system", 1000, 1100, 12, 1100)
+            .unwrap();
+        assert!(points.len() <= 12);
+        assert_eq!(points.last().unwrap().0, 1099);
+        assert!(points.iter().any(|(_, value)| *value == 99.0));
     }
 }

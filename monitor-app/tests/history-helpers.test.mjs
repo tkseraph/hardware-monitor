@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { downsamplePreserveExtremes, gapThresholdSecs } from "../src/history-helpers.mjs";
+import { downsamplePreserveExtremes, gapThresholdSecs } from "../src/history-data.ts";
 
 test("within budget returns copy unchanged", () => {
   const pts = [[0, 1], [10, 2], [20, 3]];

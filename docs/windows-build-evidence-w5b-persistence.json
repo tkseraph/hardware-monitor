@@ -1,0 +1,439 @@
+{
+  "kind": "local_debug_build_evidence_not_release",
+  "baseline_commit": "6009e750e8fd8571488961da204add13191fde4a",
+  "dirty": true,
+  "source_inputs_sha256": "c741982dc4231127ae277f2da2513bf4d228196731d705a86789d60169d22bf2",
+  "artifact": "app.exe",
+  "artifact_sha256": "d91346431ce083df37857b4fb589eeac36c1cb7a3d5a56edeec62d023b2e7362",
+  "target": "x86_64-pc-windows-msvc",
+  "rust_toolchain": "1.98.1",
+  "node": "24.19.0",
+  "tests": {
+    "rust_default": {
+      "passed": 66,
+      "failed": 0,
+      "ignored": 8
+    },
+    "node": {
+      "passed": 24,
+      "failed": 0
+    },
+    "python_privacy": 8,
+    "python_windows_probe": 5,
+    "explicit_native_checks": [
+      "cpu_memory",
+      "current_process_metrics",
+      "process_table_native_fields",
+      "storage_topology",
+      "storage_throughput",
+      "global_gpu_counters"
+    ]
+  },
+  "ui_evidence_artifact_sha256": "beb3056291225db97758aed43d617ae4953365c5fb599915ef5d5f5d6d5f6889",
+  "limitations": [
+    "No installer or signing step",
+    "Mac regression and remote CI not executed",
+    "Process storage IO blocked by kernel ETW permissions",
+    "GPU Task Manager comparison, driver-reset and multi-hardware GPU tests pending",
+    "Real hot-plug, USB and complex pool layouts not validated",
+    "Full WebView child-process cleanup not verified",
+    "Latest persistence fixes verified with isolated files and SQLite tests; UI evidence belongs to prior W4 binary"
+  ],
+  "source_inputs": [
+    {
+      "path": ".node-version",
+      "sha256": "7e8a2fa94951112b894a3dbe3d05efef5e9263741fa49125f0a70f40fedab4cc"
+    },
+    {
+      "path": "monitor-app/index.html",
+      "sha256": "2d28348dd73335e34f0ee52d3195568b46131d8edfa431626a806938e90300fc"
+    },
+    {
+      "path": "monitor-app/package-lock.json",
+      "sha256": "a7e1b42c7efafb819b7a3035dd801747005a78262ac900827134c41a0ba91eac"
+    },
+    {
+      "path": "monitor-app/package.json",
+      "sha256": "1ba7d122e04313731bf363d2d53f1f284c47b4731ba24ef4064c541ec76b6a24"
+    },
+    {
+      "path": "monitor-app/src-tauri/.gitignore",
+      "sha256": "8a460714d8a02659573400de0c2f2dcc756e63ca511497c3b8f068b63657bb01"
+    },
+    {
+      "path": "monitor-app/src-tauri/Cargo.lock",
+      "sha256": "c10db6aaac2775b640c05df35396bae0a3b930d2a1d10611684fdb244cc4acd8"
+    },
+    {
+      "path": "monitor-app/src-tauri/Cargo.toml",
+      "sha256": "984520a53cbc2a84fc847552e8858165ffff218983a06b23a720f4b63920c768"
+    },
+    {
+      "path": "monitor-app/src-tauri/build.rs",
+      "sha256": "4ae2333b11623039cc115e29b696e7ff5cdfcd5b7d628280ddf48fa733e6418d"
+    },
+    {
+      "path": "monitor-app/src-tauri/capabilities/default.json",
+      "sha256": "0c871234f407661b3cf1d64ea764e05500420c12e703c781f8f059be492c5630"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/128x128.png",
+      "sha256": "eeebf55d8ffe07348786b9057af253e3ca08c56b6a8f8893826381430e3c0b7b"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/128x128@2x.png",
+      "sha256": "2998b41d0c9278b08e8b3874e094920034fe983a46053c9d62764225f58ab7b0"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/32x32.png",
+      "sha256": "aaa96d0c53b756b77c7f46aeb72290f42256c786c69be68f6bcdeb9c7492a48e"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square107x107Logo.png",
+      "sha256": "33446a858d982a529554e562114673f8b15620588137cf0bf6c56a7441c78cd7"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square142x142Logo.png",
+      "sha256": "633d6dba504faa844b309e01272386e4523cddd4a3639c77c0eb5d2ce3eac752"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square150x150Logo.png",
+      "sha256": "d90061ad71e6f5882b759d80cf58cc16aa5021fa29ba4b2614adea982a4d7ee5"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square284x284Logo.png",
+      "sha256": "5feaa4f18f404843551756dd2791d7654ef471b6b007767ae40f60c7aebcad5b"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square30x30Logo.png",
+      "sha256": "68bc1b585f5685e0922f14b1ca7eb2d618213c684c89e759c6a5eb8578c3fe8d"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square310x310Logo.png",
+      "sha256": "5df8d779ab57c63ee06ed237b94c3c0954711e88117dccfa72b2aec5d83b0d80"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square44x44Logo.png",
+      "sha256": "c46208286b1ea1b4841b714972f3cb0a8abc6d3bfa71a29238f7b4d62f511f89"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square71x71Logo.png",
+      "sha256": "cb0ea93cbd13509d32c6bc06da71687e73d673d166fde91b23061771abe16b86"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/Square89x89Logo.png",
+      "sha256": "2208da1d741a20e902a59d7c39a5e58af74ec823db13113bf8ac6f555fa25bca"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/StoreLogo.png",
+      "sha256": "9f84d0ce09df51bac0a4855042b3e49b190cc2b9761cd5eab61ebec5cd343820"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/icon.icns",
+      "sha256": "1535d355994f8ee82da91384d2a29e04d5b4440f3e6051b5c8b06e7a62283693"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/icon.ico",
+      "sha256": "e38ca88e1d5490f3dcbc3c3fa525f7fcb7b80fff3cb2f3a4eb1b2d018c0915c1"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/icon.png",
+      "sha256": "6413bfe9d546e5225fc9256a0ecec48df3a1272ea4bdc91c15b8e000222a95d3"
+    },
+    {
+      "path": "monitor-app/src-tauri/icons/tray-icon.png",
+      "sha256": "69877d69d52342cd304827ac187f6f6e933e0dd6baab9fb856f530e82b3723e6"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/cmd.rs",
+      "sha256": "3f72229445626f451050a063030f116c31873bb22613b8d056cb40870cb7daa6"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/data_paths.rs",
+      "sha256": "d6eab1d78440f3ec12f8ddf7b266a81927f02008d623754bd7301e3f10ad4ae1"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/device_id.rs",
+      "sha256": "661c39dfd466bccb7a2a195f03ef8dafe80e3c4409648d2fd9b93e1d6141ec5e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/history.rs",
+      "sha256": "0fcdf956ac3e1e27f897b1b3d8aaf5b974faa4bf7e8a404d5b193a4345fade2d"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/history_test.rs",
+      "sha256": "9af625ec8fbc5e47cdfdc17157f4eb037dedbdfbd72127384334a26cd9d5cd40"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/instance.rs",
+      "sha256": "bf353f80856c0562ce3f803812a4b381aa8d111d60b3f271d2d97d6130391ec3"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/lib.rs",
+      "sha256": "c765d37f083f95d49eaad6e3e7dcc8b56cecdaf682158bce6a16f7cc8b9881b5"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/loginitem.rs",
+      "sha256": "df3e42c746b41fc1df31d913a77b23bdc677adcf0e245633349cffa42949539c"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/main.rs",
+      "sha256": "4e2f0b2df7d602c353248d9c9c49fd26c65194ef06acb4bbbef6496e34cd199d"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/metric_status.rs",
+      "sha256": "43223f1fa820cc6dfec2aa57dd4baf1a223fc6e43c42c9db4cabc6f984f36875"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/model.rs",
+      "sha256": "d5fe318571650bad7772fec2fdba018ef2cbb9f99a7a269665d6fe8603961f5d"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/parse.rs",
+      "sha256": "8a99813e56d063ce07f97b95e9ca333cc843769bea9a3226774ba994c51f471b"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/macos/mod.rs",
+      "sha256": "85908689a09d884f5aaf4227ef4260d1cb09f6caa51c1a13c788e0963c4ac7c6"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/macos/sampler.rs",
+      "sha256": "3b645188b2e12c7d4ac3319e746a1f49ee5e5ffa5b4a7d5cd0223c989df406bc"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/mod.rs",
+      "sha256": "c2fd775e6f749d7c9c3b18ac4ab504913a0b9a8bf175a16aa0dffcb3ba1f6fd4"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/device_registry.rs",
+      "sha256": "1557acdb92824cc2b98486930acb0425c2060c1db2b7bc044ce71fe021b187a2"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/disk_performance.rs",
+      "sha256": "d3fed58e544263576cb1ee534a1f5b0187198de92181c1b98f520c50f50aaf4f"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/gpu.rs",
+      "sha256": "258d7dbd7dc86079ab5eda747fb2bfdafe102c219a731a4fe2ad1850fce039ae"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/instance.rs",
+      "sha256": "d4efa5ce42c6abfe565367108ff8197635bfa56e8072731cf009ec8e8bb5173c"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/mod.rs",
+      "sha256": "1313523957acadfa0b63cc897d5b5e9bcb86829b75f20a69f3b6c7bbd42e68cf"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/processes.rs",
+      "sha256": "7a3e7c422c8e2ab0ba961cd21797f2d1d6dba1168adf5bf6cddcd93e4c7d8b60"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/sampler.rs",
+      "sha256": "c1d87e037b068a5805a338c4997f9fa60170173bfb1a898700e47e3aab6ed0ec"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/scheduler.rs",
+      "sha256": "9cd43de3c431f7d36308fe5c793b4ffa8de25480ce60f5384dc71771c09737f4"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/storage.rs",
+      "sha256": "82b3452476ae7f3140ea3a9fe44c533617282c90ef6bdbca69c59495dba2a44b"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/storage_native.rs",
+      "sha256": "15ad2353a57e2e9e45c2c3bade24ef15b048ba0de8c852b4bdf268b544cc6c19"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/termination.rs",
+      "sha256": "737d75d0f623bd983fb81401ffc7df2e39bbf1ea495b2173fefe5061215c0152"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/processes.rs",
+      "sha256": "e00ee226fc92a2015f73295e27d7fbda3083d548199854d3392c790dc3be842c"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/query.rs",
+      "sha256": "a3a82767675b748d2e8aba83ff993b6935ef47530540f6ed30e8818aab16a557"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/runtime_info.rs",
+      "sha256": "e7489fd90ca10b2f7dcfdb4a252a9343627db906a73c40521ab3f6efcc5fe7de"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/sampler.rs",
+      "sha256": "92178b4de1b21b0cb97d64f65c048df60d54584857f2add47b44f9337c4116f0"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/settings.rs",
+      "sha256": "a8945794bc5e00a902cb0ef8e60ae34c98589c5d263e692cb21abd7d6b20134d"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/source_runtime.rs",
+      "sha256": "72ef76b4360e862d48e62264763cbd6c2cdc31863a84da3d90b678d4f1eac3f9"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/storage.rs",
+      "sha256": "1d6fb07aa5f792390ce96a3b230b77fc3b4fa86ca3f1164175752aefab346e4f"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/storage_model.rs",
+      "sha256": "1d6d70234ea06896e2db3d990ac5f26d201f55cb194ae571e693d3fea1d63d3a"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/termination.rs",
+      "sha256": "c96175c57405d9b131d933504f89a5e6b3e1862e29e466ebcc6626ee03f7a2f1"
+    },
+    {
+      "path": "monitor-app/src-tauri/tauri.conf.json",
+      "sha256": "dc7a572a8440b6a54cf3d5512b39e8aedfd92375296d57b9e35107608cceb7ee"
+    },
+    {
+      "path": "monitor-app/src-tauri/tauri.windows.conf.json",
+      "sha256": "48c9dc4874eb3901cc942a2d353df0f6ba6d13ed77915d3ace19b59ab3fb1813"
+    },
+    {
+      "path": "monitor-app/src/App.tsx",
+      "sha256": "a7d30cdb30ff4c036405ca2768a6db330fb28942d9546dfdb4e269e39e84d97b"
+    },
+    {
+      "path": "monitor-app/src/TemperatureTrend.tsx",
+      "sha256": "c447f3607fbb11d2f28e161449ff7f02b5c763725031947f11d3832faffe9593"
+    },
+    {
+      "path": "monitor-app/src/WindowsStorage.tsx",
+      "sha256": "221ca3b3ef07eecf128aacd412c87f513b16bcbe6359d722c8c508ba48886f00"
+    },
+    {
+      "path": "monitor-app/src/hardware.ts",
+      "sha256": "fb6600f2a90c11df4c8037cf7a00661421d95fcc082b7e37247754b7e44f5946"
+    },
+    {
+      "path": "monitor-app/src/history-data.ts",
+      "sha256": "b7385ede24351185ba7d9ee7ded13811773054d4d878fee97c15522de7209641"
+    },
+    {
+      "path": "monitor-app/src/history-helpers.mjs",
+      "sha256": "8090212c663b438675d1af486b134417bb8b0844288d99a4f8087c2660efbeb8"
+    },
+    {
+      "path": "monitor-app/src/history-hooks.ts",
+      "sha256": "7e28b5e92bbb3923ff1c61359f8148b4b75855ca96814fdefc0c3be5ac3a4bf8"
+    },
+    {
+      "path": "monitor-app/src/main.tsx",
+      "sha256": "f65f37b254c56eab4d59455c276841960c02248fcbdf6d2d026b372951961558"
+    },
+    {
+      "path": "monitor-app/src/runtime-info.ts",
+      "sha256": "2affa8a96925ecb0214d76eb4feb5a5345c12a60ca40632917297d28e21cdc49"
+    },
+    {
+      "path": "monitor-app/src/source-state.ts",
+      "sha256": "7259c97bebae28a33ed755c1f6fd48eaca19e74877466c1de7ce45aa1550f6fb"
+    },
+    {
+      "path": "monitor-app/src/storage-order.ts",
+      "sha256": "ed9de2932d3f6492bb75ad4b05dccf1d0831466d6f30a305f996ae5c08499fc0"
+    },
+    {
+      "path": "monitor-app/src/storage-usage.ts",
+      "sha256": "fe8de6aad884e2e802e267cd18813aa368f936b047211c1b8b995a52d37fc058"
+    },
+    {
+      "path": "monitor-app/src/styles.css",
+      "sha256": "cc6bea22fbafd21e352d6be3bb61adf646c5590b06aa4bce40720307bca1e731"
+    },
+    {
+      "path": "monitor-app/src/temperature-trend.css",
+      "sha256": "dff90e41b8d2a3945371bb72476230258bbc3ce2ff0ce393769cf5497c481125"
+    },
+    {
+      "path": "monitor-app/src/theme-hook.ts",
+      "sha256": "be8f5f95d830f07201bf402fedf136d0801701ca1701e1cffafabf76c5a301a5"
+    },
+    {
+      "path": "monitor-app/src/theme.ts",
+      "sha256": "6ac9532f9d16e3ead8e083e5df2231f32497f1e69325128fe01b0939ebf52f38"
+    },
+    {
+      "path": "monitor-app/src/vite-env.d.ts",
+      "sha256": "2a324c7323b72c88fdd31da9f9dd9729c2b89f13d25fc75b0a30ef6e3a030fb8"
+    },
+    {
+      "path": "monitor-app/src/windows-storage.css",
+      "sha256": "5f3c669a565d4248727b29dbcc2d7ece70796f26888069eed33b6e9da8993c1c"
+    },
+    {
+      "path": "monitor-app/src/windows-storage.ts",
+      "sha256": "472bed99e53c02a9ba1c0a343f67e968cd4b471a026f8d95c199f0fa7b4dd773"
+    },
+    {
+      "path": "monitor-app/tests/history-helpers.test.mjs",
+      "sha256": "34f338e45ae03df20abc160985d198071ce7da16b1d9b24ab07a18ad418fe1a4"
+    },
+    {
+      "path": "monitor-app/tests/source-state.test.mjs",
+      "sha256": "53d82ebdfa76cd17ceccb22c8a437d67a953277b66a14b743e67c27d9eed17db"
+    },
+    {
+      "path": "monitor-app/tests/storage-order.test.mjs",
+      "sha256": "76adece5890803cfa4fb0dd9cb40a9ffe2e8a65ed7d3edbe483a2bcc7ba703f4"
+    },
+    {
+      "path": "monitor-app/tests/storage-usage.test.mjs",
+      "sha256": "f138fdf6aa90cbf928e1cc9aad87187d42e79c60b15e68f051b40dddfc6354b4"
+    },
+    {
+      "path": "monitor-app/tests/temperature-segments.test.mjs",
+      "sha256": "743c7b280d3d9333323e6118c9d7fd21694e530274e284a275024d3a8206d171"
+    },
+    {
+      "path": "monitor-app/tests/theme.test.mjs",
+      "sha256": "ff16f5d8c90c37f5f1745f018cd8be8d3cac4ee76f25fc046d2dca45effa081f"
+    },
+    {
+      "path": "monitor-app/tests/windows-storage.test.mjs",
+      "sha256": "b8c691bdbba34f0c96ddc3495b44022bcc98414718ab0ca5de4e87e49119c871"
+    },
+    {
+      "path": "monitor-app/tsconfig.json",
+      "sha256": "b296715c187e44f6f70ae6878b6c60f9ce720efdab1cc4d4fa50425e00008087"
+    },
+    {
+      "path": "monitor-app/vite.config.ts",
+      "sha256": "d6d28b35d584b934da60c14d7f2e7abb1ce36518bcb2001ab9d28fb1b4edfb64"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "sha256": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"
+    }
+  ],
+  "authenticode_status": "NotSigned",
+  "stage": "W5b-storage-reliability-partial",
+  "native_w3": {
+    "disk_count": 2,
+    "volume_count": 4,
+    "mapped_volume_count": 4,
+    "identified_disk_count": 2,
+    "performance_mapped_disk_count": 2,
+    "unmapped_performance_instances": 0,
+    "registry_records_after_restart": 4,
+    "old_series_unchanged": true,
+    "new_series_after_restart": 2,
+    "archive_selection_verified": true
+  },
+  "native_gpu": {
+    "matched_adapters": 1,
+    "unverified_adapter_entries": 3,
+    "other_active_engine_instances": 9,
+    "history_sample_count_at_check": 49,
+    "history_identity_matched": true
+  },
+  "etw_capability": {
+    "start_code": 5,
+    "session_started": false,
+    "events_consumed": 0,
+    "privilege_changed": false
+  }
+}

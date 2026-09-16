@@ -6,7 +6,45 @@
 //! never silently reset.
 
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_save_tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+    #[test]
+    fn existing_file_can_be_replaced_and_failed_replacement_preserves_it() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "monitor-settings-replace-{}-{stamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let store = SettingsStore::new(root.clone());
+        let original = Settings::default();
+        store.save(&original).unwrap();
+        let mut changed = original.clone();
+        changed.foreground_interval_ms = 1500;
+        store.save(&changed).unwrap();
+        let before = std::fs::read(&store.path).unwrap();
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&store.path)
+            .unwrap();
+        assert!(store.save(&original).is_err());
+        drop(lock);
+        assert_eq!(std::fs::read(&store.path).unwrap(), before);
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
 use std::sync::Mutex;
 
 pub const SETTINGS_VERSION: u32 = 1;
@@ -167,17 +205,38 @@ impl SettingsStore {
     /// over the target (A13: no shared temp name, no silent partial write).
     pub fn save(&self, settings: &Settings) -> Result<(), String> {
         settings.validate()?;
-        let tmp = self
-            .path
-            .with_extension(format!("json.tmp.{}", std::process::id()));
-        let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-        // fsync the temp file before rename so a power loss cannot leave the
-        // renamed file without its contents on disk.
-        if let Ok(f) = std::fs::File::open(&tmp) {
-            let _ = f.sync_all();
+        let text = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
+        let mut reserved = None;
+        for _ in 0..32 {
+            let temp = self.path.with_extension(format!(
+                "json.tmp.{}.{}",
+                std::process::id(),
+                TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+            {
+                Ok(file) => {
+                    reserved = Some((temp, file));
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.to_string()),
+            }
         }
-        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())?;
+        let (temp, mut file) = reserved.ok_or("could not reserve settings temporary file")?;
+        let result = (|| -> std::io::Result<()> {
+            file.write_all(&text)?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&temp, &self.path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        result.map_err(|error| error.to_string())?;
         Ok(())
     }
 }

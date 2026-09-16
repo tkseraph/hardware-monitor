@@ -1,25 +1,27 @@
 # 本机硬件监控软件
 
-长期目标是支持 macOS 与 Windows；**当前计划先完成用户本机 Apple M4 Mac，Mac 全部跑通并通过整体验收后，再由用户决定是否启动 Windows 扩展。**
+Hardware Monitor 使用 Tauri 2、React/TypeScript、Rust 和 SQLite，提供本机硬件实时监控与设备级历史。
 
-**当前状态：已完成 S0–S11 整改的可运行 Mac 应用，部分验收通过。** 应用代码在 [monitor-app](monitor-app/)，能采集 CPU/内存/GPU/磁盘/进程的真实数据并提供 7 天分层历史。2026-09-11 全面审查发现的 27 项问题已按 [整改计划](docs/reviews/2026-09-11-code-review.md) 逐阶段修复；实际验收结果（含仍待实测项）见 [整改验收记录](docs/remediation-acceptance.md)。
+Windows 适配正在实施。当前 Windows x64 开发版本已具备 CPU 总/逐逻辑处理器、系统内存和进程内存/CPU 的真实读数；采用独立来源线程与有界历史写入队列。本机两块 NVMe 的盘卷关系、容量、实时吞吐和匿名历史已接入；Radeon 890M 的 GPU 全局利用率和专用/共享内存已接入；进程存储 I/O 与增强传感器仍未完成，界面明确显示其状态。可编译或可运行不代表完整基础版本验收通过。
 
-## 文档入口
+现有 Mac 实现保留，历史验收与待验证项见 [Mac 整改记录](docs/remediation-acceptance.md) 和 [R14 记录](docs/remediation-acceptance-r14.md)。Windows 本轮修改的 Mac 原生回归尚未执行。
 
-- [需求与决策](docs/requirements.md)：指标清单、D-001～D-012，以及 Mac 优先/Windows 延后的最新边界。
-- [领域模型](docs/domain-model.md)：设备、内存、存储拓扑、指标、能力、样本与生命周期；仅在设计中保留后续平台适配边界。
-- [Mac 优先实施方案](docs/implementation-plan.md)：待执行的 Mac 阶段任务、默认策略、权限与安装要求。
-- [采集能力矩阵](docs/capability-matrix.md)：Mac 优先候选与此前证据；Windows 列保留为延后参考。
-- [Mac 验收清单](docs/validation-plan.md)：真实采集、页面、历史、权限、菜单栏、稳定性与安装验收；Windows 不作当前交付前提。
+## Windows 开发入口
 
-## Mac 交付方向
+- [分步实施计划](docs/plans/2026-09-14-windows-development-plan.md)：W0～W7 的依赖、工作项和验收条件。
+- [开发环境](docs/windows-environment.md)：已核实的工具链与本机条件。
+- [来源能力](docs/windows-capabilities.md)：探针可读与生产集成分别记录。
+- [数据契约](docs/windows-metric-contract.md)：平台、缺值、来源状态、历史和进程身份。
+- [Windows 验收记录](docs/windows-acceptance.md)：实际测试、原生验证和剩余项目。
 
-总览 + CPU/GPU/内存/磁盘详情与设置；物理盘下列出关联容器/卷；进程内存和系统范围进程存储读写；设备级历史本机保留 7 天；关窗常驻 Mac 菜单栏，完全退出停止；主要动态指标目标前台 1 秒、后台 3 秒。
+开发工具版本以 `.node-version`、`rust-toolchain.toml` 和两个依赖锁文件为准。Windows 使用 MSVC、Windows SDK 与 WebView2。测试时设置独立的 `MONITOR_DATA_DIR`，Windows 的数据库、设置、WebView 和 debug 日志均位于对应测试根。构建产物与真实测试数据不入库。
 
-普通权限基础模式与可选增强采集分离。允许按能力明确降级，但不制造假数据，不把未实现/未验证写成不支持，不绕过系统安全机制。原始高级指标仍按已确认的分阶段安排保留，不因平台顺序调整而删除。
+## 产品范围
 
-工程建议仍为 **Tauri 2 + React/TypeScript + Rust + SQLite**，先计划 Mac 原生适配。后续获准开发时按 **Mac M0 能力验证 → M1 实时基础 → M2 配套功能 → M3 增强与稳定性 → M4 安装和整体验收** 推进；仅能启动或只有基础读数的原型不算“全部跑通”。
+总览、CPU/GPU/内存/磁盘详情、进程排行及设置；存储以物理盘和关联卷组织；设备级历史本地保留 7 天，不默认保存进程明细历史。关闭窗口后继续采集，明确退出才停止；主要动态指标目标为前台 1 秒、后台 3 秒，自启默认关闭。
 
-## Windows 延后范围
+普通权限基础模式与可选增强采集分开。不填造缺失读数，不把尚未实现写成设备不支持，不上传监控数据。Windows 进程结束和自启目前禁用；没有安装监控服务或硬件驱动。
 
-暂不开发 Windows 适配器、探测脚本、服务/驱动接入、安装包或专用测试，也不要求准备 Windows 构建环境。已有 HX 370 / Radeon 890M 配置和研究仅作后续参考。Mac 验收通过后不自动转入 Windows，等待用户后续决定。
+## 需求与既有设计
+
+[需求与决策](docs/requirements.md)、[领域模型](docs/domain-model.md)、[原 Mac 实施方案](docs/implementation-plan.md)、[既有能力矩阵](docs/capability-matrix.md)、[验收原则](docs/validation-plan.md)保留用于溯源。其中 Windows 延后的表述属于旧阶段，当前 Windows 工作以新的实施计划和实际记录为准。

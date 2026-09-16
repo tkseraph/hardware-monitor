@@ -2,19 +2,34 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
 
+#[cfg(target_os = "macos")]
 mod cmd;
 mod data_paths;
+#[cfg(target_os = "macos")]
 mod device_id;
 mod history;
+mod history_view;
+#[cfg_attr(target_os = "windows", path = "platform/windows/instance.rs")]
 mod instance;
+#[cfg(target_os = "macos")]
 mod loginitem;
 mod metric_status;
+mod model;
+#[cfg(target_os = "macos")]
 mod parse;
+mod platform;
 mod processes;
 mod query;
+mod runtime_info;
+#[cfg_attr(target_os = "windows", path = "platform/windows/scheduler.rs")]
 mod sampler;
 mod settings;
+#[cfg(target_os = "windows")]
+mod source_runtime;
+#[cfg(target_os = "macos")]
 mod storage;
+mod storage_model;
+#[cfg_attr(target_os = "windows", path = "platform/windows/termination.rs")]
 mod termination;
 
 #[cfg(test)]
@@ -41,7 +56,9 @@ async fn get_processes(
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<processes::ProcessPage, String> {
-    let mut page = processes::scan_processes()?;
+    let mut page = tauri::async_runtime::spawn_blocking(processes::scan_processes)
+        .await
+        .map_err(|_| "process worker failed".to_string())??;
 
     // Filter by name or PID substring over the full set.
     if let Some(q) = search
@@ -130,6 +147,39 @@ async fn get_system_info() -> Result<SystemInfo, String> {
     sampler::latest_snapshot().ok_or_else(|| "collector is still warming up".to_string())
 }
 
+#[tauri::command]
+async fn get_history_v2(
+    metric_id: String,
+    object_id: String,
+    duration_secs: i64,
+) -> Result<history_view::HistoryView, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "invalid system clock")?
+        .as_secs() as i64;
+    let q = query::validate_query(&metric_id, &object_id, duration_secs, now)
+        .map_err(|e| format!("invalid history query: {e:?}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        history::query_view(
+            &q.metric_id,
+            &q.object_id,
+            q.start_secs,
+            q.end_secs,
+            q.max_points,
+            now,
+        )
+    })
+    .await
+    .map_err(|_| "history worker failed".to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Explicit application exit, separate from closing/hiding the window.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// R4: combined health view. IPC success is NOT collection success — this DTO
 /// carries sampling freshness and history-write health so the frontend can
 /// show "数据可能过期" instead of a stale value labeled "实时采集中" (A03).
@@ -137,6 +187,7 @@ async fn get_system_info() -> Result<SystemInfo, String> {
 struct SystemStatus {
     sampling: metric_status::SamplingHealth,
     history_health: &'static str,
+    history_lost_batches: u64,
 }
 
 #[tauri::command]
@@ -150,6 +201,7 @@ async fn get_system_status() -> Result<SystemStatus, String> {
     Ok(SystemStatus {
         sampling: metric_status::health(),
         history_health: hh,
+        history_lost_batches: sampler::lost_history_batches(),
     })
 }
 
@@ -171,7 +223,9 @@ async fn get_settings() -> Result<SettingsPayload, String> {
 
 #[tauri::command]
 async fn set_settings(new_settings: settings::Settings) -> Result<(), String> {
-    settings::set(new_settings)
+    settings::set(new_settings)?;
+    sampler::configuration_changed();
+    Ok(())
 }
 
 /// Opt-in login item toggle. R9/A12: register and verify are separate steps.
@@ -182,44 +236,52 @@ async fn set_launch_at_login(
     enable: bool,
     _app: tauri::AppHandle,
 ) -> Result<LoginItemResult, String> {
-    let app_path = std::env::current_exe()
-        .ok()
-        .and_then(|p| {
-            // exe is at monitor.app/Contents/MacOS/monitor; the bundle root
-            // is three levels up.
-            p.ancestors().nth(3).map(|a| a.to_path_buf())
-        })
-        .and_then(|p| p.to_str().map(|s| s.to_string()))
-        .ok_or("could not resolve .app bundle path")?;
-
-    // Step 1: register/unregister. A hard failure aborts and is surfaced.
-    loginitem::set_launch_at_login(enable, &app_path)?;
-
-    // Step 2: verify against the actual system state. On query failure we
-    // report unknown rather than guessing (A12) and do NOT persist a guess.
-    match loginitem::is_registered(&app_path) {
-        Ok(registered) => {
-            // Persist the verified state so the UI reflects reality.
-            let mut s = settings::get();
-            s.launch_at_login = registered;
-            if let Err(e) = settings::set(s) {
-                return Ok(LoginItemResult {
-                    registered: Some(registered),
-                    saved: false,
-                    error: Some(e),
-                });
-            }
-            Ok(LoginItemResult {
-                registered: Some(registered),
-                saved: true,
-                error: None,
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = enable;
+        Err("not_implemented".into())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let app_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| {
+                // exe is at monitor.app/Contents/MacOS/monitor; the bundle root
+                // is three levels up.
+                p.ancestors().nth(3).map(|a| a.to_path_buf())
             })
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .ok_or("could not resolve .app bundle path")?;
+
+        // Step 1: register/unregister. A hard failure aborts and is surfaced.
+        loginitem::set_launch_at_login(enable, &app_path)?;
+
+        // Step 2: verify against the actual system state. On query failure we
+        // report unknown rather than guessing (A12) and do NOT persist a guess.
+        match loginitem::is_registered(&app_path) {
+            Ok(registered) => {
+                // Persist the verified state so the UI reflects reality.
+                let mut s = settings::get();
+                s.launch_at_login = registered;
+                if let Err(e) = settings::set(s) {
+                    return Ok(LoginItemResult {
+                        registered: Some(registered),
+                        saved: false,
+                        error: Some(e),
+                    });
+                }
+                Ok(LoginItemResult {
+                    registered: Some(registered),
+                    saved: true,
+                    error: None,
+                })
+            }
+            Err(e) => Ok(LoginItemResult {
+                registered: None,
+                saved: false,
+                error: Some(format!("verify: {}", e)),
+            }),
         }
-        Err(e) => Ok(LoginItemResult {
-            registered: None,
-            saved: false,
-            error: Some(format!("verify: {}", e)),
-        }),
     }
 }
 
@@ -233,8 +295,11 @@ struct LoginItemResult {
 }
 
 #[tauri::command]
-async fn terminate_process(pid: u32, start_marker: u64) -> Result<(), String> {
-    termination::request(pid, start_marker)
+async fn terminate_process(pid: u32, start_marker: Option<String>) -> Result<(), String> {
+    let marker = start_marker
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or("changed")?;
+    termination::request(pid, marker)
 }
 
 /// All explicit reopen actions restore the existing window, never create a
@@ -262,7 +327,7 @@ fn restore_main_window(app: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            if cfg!(debug_assertions) {
+            if cfg!(debug_assertions) && cfg!(target_os = "macos") {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
@@ -290,21 +355,24 @@ pub fn run() {
             // Single-instance guard (R3/A08): keyed by the canonical data dir. A
             // second instance on the SAME dir does not sample; a different
             // MONITOR_DATA_DIR gets an independent lock and may run in parallel.
-            let acquired =
-                paths
-                    .as_ref()
-                    .and_then(|p| match instance::try_acquire(&p.lock_path()) {
-                        Ok(instance::Acquire::Acquired(lock)) => Some(lock),
-                        Ok(instance::Acquire::AlreadyRunning) => {
-                            log::warn!("another instance owns this data dir; sampling disabled");
-                            None
-                        }
-                        Err(e) => {
-                            log::error!("instance lock error: {:?}", e);
-                            None
-                        }
-                    });
+            let acquired = if let Some(paths) = &paths {
+                match instance::try_acquire(&paths.lock_path()) {
+                    Ok(instance::Acquire::Acquired(lock)) => Some(lock),
+                    Ok(instance::Acquire::AlreadyRunning) => None,
+                    Err(error) => return Err(format!("cannot acquire data-directory lock: {error}").into()),
+                }
+            } else { None };
             let is_primary = acquired.is_some() || paths.is_none();
+            runtime_info::set_primary(is_primary);
+            #[cfg(target_os = "windows")]
+            if !is_primary {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION};
+                let message: Vec<u16> = "此数据目录已有 Hardware Monitor 实例，请使用已有窗口。\0".encode_utf16().collect();
+                let title: Vec<u16> = "Hardware Monitor\0".encode_utf16().collect();
+                unsafe { MessageBoxW(std::ptr::null_mut(), message.as_ptr(), title.as_ptr(), MB_ICONINFORMATION); }
+                app.handle().exit(0);
+                return Ok(());
+            }
 
             // Initialize history DB + settings from the shared DataPaths. A DB
             // failure degrades to "realtime ok, history unavailable" (R2/A05): the
@@ -323,6 +391,20 @@ pub fn run() {
                 log::error!("no data dir; history and settings persistence disabled");
             }
 
+            #[cfg(target_os = "windows")]
+            {
+                let root = &paths.as_ref().ok_or("Windows data directory unavailable")?.root;
+                if cfg!(debug_assertions) {
+                    app.handle().plugin(tauri_plugin_log::Builder::default()
+                        .targets([tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                            path: root.join("logs"), file_name: Some("monitor".into()),
+                        })]).build())?;
+                }
+                tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+                    .data_directory(root.join("webview"))
+                    .build()?;
+            }
+
             // Create menu bar tray icon
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
@@ -336,7 +418,7 @@ pub fn run() {
                     .expect("failed to load tray icon");
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
-                .icon_as_template(true)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .menu(&menu)
                 .tooltip("Hardware Monitor")
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -363,8 +445,9 @@ pub fn run() {
             // Only the primary instance (holding the data-dir lock) samples; a
             // second instance on the same dir shows a window but does not double-write.
             if is_primary {
-                tauri::async_runtime::spawn(async {
-                    sampler::run_scheduler().await;
+                let data_root = paths.as_ref().map(|p|p.root.clone());
+                tauri::async_runtime::spawn(async move {
+                    sampler::run_scheduler(data_root).await;
                 });
 
                 // Aggregation + retention pass every 60s. Aggregation into buckets is
@@ -377,10 +460,9 @@ pub fn run() {
                 });
             }
 
-            // Keep the lock alive for the process lifetime by leaking it into a
-            // static holder; dropping it would release the lock prematurely.
+            // Application state owns the lock until exit; do not leak the handle.
             if let Some(lock) = acquired {
-                std::mem::forget(lock);
+                app.manage(lock);
             }
 
             Ok(())
@@ -389,12 +471,19 @@ pub fn run() {
             match event {
         WindowEvent::CloseRequested { api, .. } => {
           // Hide window instead of closing; sampling continues in background.
-          window.hide().unwrap();
+          if !runtime_info::is_primary() {
+              window.app_handle().exit(0);
+              return;
+          }
+          if window.hide().is_err() { return; }
           sampler::set_window_visible(false);
           api.prevent_close();
         }
         WindowEvent::Focused(true) => {
           sampler::set_window_visible(true);
+        }
+        WindowEvent::Resized(_) => {
+          sampler::set_window_visible(window.is_visible().unwrap_or(true) && !window.is_minimized().unwrap_or(false));
         }
         WindowEvent::Focused(false)
           // Only drop to background cadence if the window is also hidden.
@@ -406,10 +495,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_system_info,
+            quit_app,
+            runtime_info::get_runtime_info,
             get_system_status,
             get_processes,
             terminate_process,
             get_history,
+            get_history_v2,
             get_settings,
             set_settings,
             set_launch_at_login,
@@ -417,6 +509,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            if let tauri::RunEvent::Exit = _event {
+                sampler::shutdown();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 restore_main_window(_app);

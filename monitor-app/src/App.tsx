@@ -1,144 +1,32 @@
+import { HistoryNotice } from "./HistoryNotice";
+import type { HistoryView } from "./history-view";
+import { temperatureSegments } from "./history-data";
+import { WindowsStorage } from './WindowsStorage';
+import type { CpuInfo, MemoryInfo, GpuInfo, DiskInfo, DiskThroughput, ProcessInfo, ProcessPage, ProcessSortKey, PhysicalDisk, SystemInfo, SystemStatus } from './hardware';
+import { sourceMessage, freshnessThreshold, type SourceState } from './source-state';
+import type { RuntimeInfo } from './runtime-info';
 import { orderOverviewDisks } from "./storage-order";
 import { useTheme } from "./theme-hook";
 import type { ThemePreference } from "./theme";
 import { TemperatureTrend } from "./TemperatureTrend";
 import { storageUsage } from "./storage-usage";
-import { useHistoryQuery, downsamplePreserveExtremes, gapThresholdSecs } from "./history-hooks";
+import { useHistoryQuery, gapThresholdSecs } from "./history-hooks";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
-const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "readable processes (system-wide disk I/O)": "个可读取进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
+const RuntimeContext = createContext<RuntimeInfo | null>(null);
+const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "enumerated processes (system-wide disk I/O)": "个已枚举进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏或系统托盘继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
 Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。", "Selection left the current list; select it again.": "所选进程已不在当前列表中，请重新选择。", "Failed to load settings": "设置加载失败", "Settings file was invalid; defaults restored. The original file was kept.": "设置文件无效；已恢复默认值，原文件已保留。", "Could not verify login item state; left unchanged.": "无法核实登录项状态，已保持原状。", "Login item changed but settings were not saved.": "登录项已更改，但设置未保存。", "Failed to load history": "历史加载失败", "No history yet": "暂无历史数据", "History range": "历史范围", "Throughput History": "吞吐历史"});
+Object.assign(translations, {
+  "enumerated processes": "个已枚举进程",
+  "Quit application": "退出软件",
+  "Failed to quit": "退出失败，请重试",
+  "Windows process storage I/O and process termination are not implemented. Memory is working set; CPU is normalized to the whole machine.": "Windows 进程存储读写和结束进程尚未实现。内存显示工作集，CPU 按整机计算能力归一化。",
+  "Windows launch at login is not implemented.": "Windows 登录时启动尚未实现。",
+});
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
-
-interface CpuInfo {
-  name: string;
-  physical_cores: number;
-  logical_cores: number;
-  total_usage: number;
-  per_core_usage: number[];
-}
-
-interface MemoryInfo {
-  total_bytes: number;
-  used_bytes: number;
-  available_bytes: number;
-  used_percent: number;
-}
-
-interface GpuInfo {
-  name: string;
-  utilization: number;
-  memory_used_bytes: number;
-  memory_allocated_bytes: number;
-}
-
-interface DiskInfo {
-  device: string;
-  /** Stable anonymous history identity (A10). */
-  device_uid: string;
-  generation: number;
-  name: string;
-  size_bytes: number;
-  smart_status: string;
-  temperature_celsius: number | null;
-  power_on_hours: number | null;
-}
-
-interface DiskThroughput {
-  device: string;
-  /** Stable anonymous history identity (A10). */
-  device_uid: string;
-  mb_per_sec: number;
-}
-
-interface ProcessInfo {
-  pid: number;
-  start_marker: number;
-  name: string;
-  memory_bytes: number;
-  cpu_usage: number;
-  disk_read_bytes: number;
-  disk_write_bytes: number;
-  disk_read_bps: number | null;
-  disk_write_bps: number | null;
-  /** R6: false when I/O counters were unreadable; do not render the 0s. */
-  io_ok: boolean;
-}
-
-interface ProcessPage {
-  processes: ProcessInfo[];
-  total_readable: number;
-  /** R6: rows matching the filter before pagination — real page count. */
-  matched_total: number;
-  offset: number;
-  limit: number;
-  observed_at: number;
-}
-
-type ProcessSortKey = "memory" | "cpu" | "diskread" | "diskwrite";
-
-interface VolumeInfo {
-  id: string;
-  name: string;
-  role: string;
-  /** All APFS roles (multi-role volumes are not collapsed to one string). */
-  roles: string[];
-  capacity_consumed: number | null;
-}
-
-interface ContainerInfo {
-  container_ref: string;
-  /** R7/A09: EVERY backing physical store, never truncated to the first. */
-  physical_stores: string[];
-  /** True when capacity is shared across more than one physical disk. */
-  shared_pool: boolean;
-  capacity_ceiling: number | null;
-  capacity_free: number | null;
-  capacity_in_use: number | null;
-  volumes: VolumeInfo[];
-}
-
-interface PhysicalDisk {
-  /** Volatile enumeration address (e.g. disk0); live display only (A10). */
-  device: string;
-  /** Stable anonymous history identity (A10); falls back to device if absent. */
-  device_uid: string | null;
-  /** Generation of device_uid; bumps on hot-plug address reuse (A10). */
-  generation: number;
-  name: string;
-  size_bytes: number;
-  smart_status: string;
-  temperature_celsius: number | null;
-  power_on_hours: number | null;
-  containers: ContainerInfo[];
-}
-
-interface SystemInfo {
-  cpu: CpuInfo;
-  memory: MemoryInfo;
-  gpu: GpuInfo;
-  disks: DiskInfo[];
-  disk_throughput: DiskThroughput[];
-  /** Full physical-disk → container → volume topology. */
-  storage: PhysicalDisk[];
-  /** Unix seconds when the snapshot was sampled by the Rust scheduler. */
-  observed_at: number;
-}
-
-/** R4: sampling + history health from get_system_status. */
-interface SamplingHealth {
-  last_success_at: number | null;
-  success_age_secs: number | null;
-  consecutive_failures: number;
-  ever_succeeded: boolean;
-}
-interface SystemStatus {
-  sampling: SamplingHealth;
-  history_health: "ok" | "over_budget" | "write_error" | "unavailable";
-}
 
 type Page = "overview" | "cpu" | "memory" | "gpu" | "disk" | "processes" | "settings";
 
@@ -185,24 +73,31 @@ function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>("overview");
 
   useEffect(() => {
     if (!isTauri()) return;
     let busy = false;
+    let disposed = false;
     const fetchData = async () => {
-      if (busy) return;
+      if (busy || disposed) return;
       busy = true;
       try {
+        const rt = await invoke<RuntimeInfo>("get_runtime_info");
+        if (disposed) return;
+        setRuntime(rt);
+        if (!rt.primary_instance) { setError(null); return; }
         const [info, st] = await Promise.all([
           invoke<SystemInfo>("get_system_info"),
           invoke<SystemStatus>("get_system_status"),
         ]);
+        if (disposed) return;
         setSystemInfo(info);
         setStatus(st);
         setError(null);
       } catch (err) {
-        setError(String(err));
+        if (!disposed) setError(String(err) === "collector is still warming up" ? null : String(err));
       } finally {
         busy = false;
       }
@@ -210,13 +105,13 @@ function App() {
 
     fetchData();
     const interval = setInterval(fetchData, 1000);
-    return () => clearInterval(interval);
+    return () => { disposed = true; clearInterval(interval); };
   }, []);
 
   // R4/A03: a cached snapshot is only "realtime" while it is fresh. Foreground
   // cadence is ~1s (user-configurable up to 10s), so a snapshot older than 15s
   // means collection has stalled — never show a stale value as live.
-  const FRESH_THRESHOLD_SECS = 15;
+  const FRESH_THRESHOLD_SECS = freshnessThreshold(runtime?.effective_interval_ms ?? 1000);
   const snapshotAge = status?.sampling.success_age_secs ?? null;
   const isStale = status !== null
     && status.sampling.ever_succeeded
@@ -231,32 +126,36 @@ function App() {
     ["settings", "设置", "Settings", "settings"]
   ];
   return (
+    <RuntimeContext.Provider value={runtime}>
     <LanguageContext.Provider value={language}>
     <div className="app">
       <nav className="sidebar" aria-label={zh ? "主导航" : "Navigation"}>
         <div className="brand"><span className="brand-icon">M</span><div><h1>Monitor</h1><small>{zh ? "硬件监控中心" : "HARDWARE INSIGHTS"}</small></div></div>
         <div className="nav-caption">{zh ? "工作空间" : "WORKSPACE"}</div>
         <ul>{pages.map(([id, cn, en, icon]) => <li key={id}><button aria-current={currentPage === id ? "page" : undefined} className={currentPage === id ? "active" : ""} onClick={() => setCurrentPage(id)}><Icon name={icon} />{zh ? cn : en}</button></li>)}</ul>
-        <div className="sidebar-footer"><span className="privacy-dot" />{zh ? "本地采集 · 隐私优先" : "Local & private"}<small>MONITOR / macOS</small></div>
+        <div className="sidebar-footer"><span className="privacy-dot" />{zh ? "本地采集 · 隐私优先" : "Local & private"}<small>MONITOR / {runtime?.platform === "windows" ? "Windows" : runtime?.platform === "macos" ? "macOS" : "—"}</small></div>
       </nav>
       <main className="content">
         <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><div className="topbar-controls"><label className="theme-control"><span>{zh ? "外观" : "Appearance"}</span><select aria-label={zh ? "外观模式" : "Appearance mode"} value={theme} onChange={e => setTheme(e.target.value as ThemePreference)}><option value="system">{zh ? "跟随系统" : "System"}</option><option value="light">{zh ? "浅色" : "Light"}</option><option value="dark">{zh ? "深色" : "Dark"}</option></select></label><select aria-label={zh ? "界面语言" : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></div></header>
-        <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : isStale ? (zh ? "数据可能过期" : "Data may be stale") : systemInfo ? (zh ? "实时采集中" : "Collecting") : (zh ? "等待采样" : "Waiting")}</span></section>
+        <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : isStale ? (zh ? "数据可能过期" : "Data may be stale") : systemInfo ? (Object.values(systemInfo.source_states).some(state => state !== "ok") ? (zh ? "部分指标可用" : "Partial collection") : (zh ? "实时采集中" : "Collecting")) : (zh ? "等待采样" : "Waiting")}</span></section>
+        {runtime && !runtime.primary_instance && <p className="note" role="alert">{zh ? "已有实例正在使用此数据目录。本窗口不会重复采集，请关闭此窗口并使用已有实例。" : "Another instance owns this data directory. Close this window and use the existing instance."}</p>}
         {isStale && !error && <div className="note" role="status">{zh ? `采集器已 ${snapshotAge} 秒未更新，显示的为最近成功读数。` : `Collector has not updated for ${snapshotAge}s; showing the last good reading.`}</div>}
+        {!!status?.history_lost_batches && <p className="note" role="status">{zh ? `本次运行有 ${status.history_lost_batches} 批历史样本未保存；曲线可能存在缺口，实时采集继续。` : `${status.history_lost_batches} history batches were not saved in this run; charts may have gaps while realtime collection continues.`}</p>}
         {historyDegraded && !error && <div className="note" role="status">{zh ? "历史记录暂不可用或已暂停写入；实时读数不受影响。" : "History is unavailable or paused; realtime readings are unaffected."}</div>}
         {error && <div className="note" role="alert">{zh ? "采集失败，显示的旧读数可能已过期：" : "Collection failed; previous values may be stale: "}{error}</div>}
-        {!systemInfo && currentPage !== "settings" && <section className="empty-panel"><div className="empty-icon"><Icon name="overview" /></div><h3>{zh ? (isTauri() ? "正在连接本机采集器" : "在桌面应用中查看实时数据") : (isTauri() ? "Connecting to collectors" : "Live metrics need the desktop app")}</h3><p>{zh ? "硬件指标由 macOS 原生接口提供。未连接采集器时，不显示模拟读数。" : "Metrics come from native macOS APIs. No simulated readings are displayed."}</p><div className="empty-grid">{pages.slice(1,5).map(([id,cn,en,icon]) => <button key={id} onClick={() => setCurrentPage(id)}><span><Icon name={icon} /></span><strong>{zh ? cn : en}</strong><b>—</b><small>{zh ? "等待真实数据" : "Awaiting real data"}</small></button>)}</div></section>}
+        {!systemInfo && currentPage !== "settings" && <section className="empty-panel"><div className="empty-icon"><Icon name="overview" /></div><h3>{zh ? (isTauri() ? "正在连接本机采集器" : "在桌面应用中查看实时数据") : (isTauri() ? "Connecting to collectors" : "Live metrics need the desktop app")}</h3><p>{zh ? "硬件指标由本机原生接口提供。未连接采集器时，不显示模拟读数。" : "Metrics come from native system APIs. No simulated readings are displayed."}</p><div className="empty-grid">{pages.slice(1,5).map(([id,cn,en,icon]) => <button key={id} onClick={() => setCurrentPage(id)}><span><Icon name={icon} /></span><strong>{zh ? cn : en}</strong><b>—</b><small>{zh ? "等待真实数据" : "Awaiting real data"}</small></button>)}</div></section>}
 
-        {currentPage === "overview" && systemInfo && <OverviewPage systemInfo={systemInfo} />}
-        {currentPage === "cpu" && systemInfo && <CpuPage cpu={systemInfo.cpu} />}
-        {currentPage === "memory" && systemInfo && <MemoryPage memory={systemInfo.memory} />}
-        {currentPage === "gpu" && systemInfo && <GpuPage gpu={systemInfo.gpu} />}
-        {currentPage === "disk" && systemInfo && <DiskPage disks={systemInfo.disks} throughput={systemInfo.disk_throughput} />}
-        {currentPage === "processes" && systemInfo && <ProcessesPage />}
+        {currentPage === "overview" && systemInfo && <OverviewPage systemInfo={systemInfo} onStorageDetails={() => setCurrentPage("disk")} />}
+        {currentPage === "cpu" && systemInfo && (systemInfo.cpu ? <CpuPage cpu={systemInfo.cpu} /> : <UnavailableCard kind="cpu" state={systemInfo.source_states.cpu} />)}
+        {currentPage === "memory" && systemInfo && (systemInfo.memory ? <MemoryPage memory={systemInfo.memory} /> : <UnavailableCard kind="memory" state={systemInfo.source_states.memory} />)}
+        {currentPage === "gpu" && systemInfo && (systemInfo.gpus.length ? systemInfo.gpus.map(gpu => <GpuPage key={gpu.object_id} gpu={gpu} />) : <UnavailableCard kind="gpu" state={systemInfo.source_states.gpu} />)}
+        {currentPage === "disk" && systemInfo && (systemInfo.windows_storage ? <WindowsStorage snapshot={systemInfo.windows_storage} throughput={systemInfo.windows_disk_throughput} english={!zh} details intervalMs={runtime?.effective_interval_ms}/> : systemInfo.source_states.storage === "ok" ? <DiskPage disks={systemInfo.disks} throughput={systemInfo.disk_throughput} /> : <UnavailableCard kind="disk" state={systemInfo.source_states.storage} />)}
+        {currentPage === "processes" && isTauri() && runtime?.primary_instance && <ProcessesPage />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>
     </LanguageContext.Provider>
+    </RuntimeContext.Provider>
   );
 }
 
@@ -325,13 +224,16 @@ export function StorageOverview({ storage }: { storage: PhysicalDisk[] }) {
   );
 }
 
-function OverviewPage({ systemInfo }: { systemInfo: SystemInfo }) {
+function OverviewPage({ systemInfo, onStorageDetails }: { systemInfo: SystemInfo; onStorageDetails?: () => void }) {
+  const english = useContext(LanguageContext) === "en";
+  const runtime = useContext(RuntimeContext);
   const t = useText();
+  const gpu = systemInfo.gpus[0];
   return (
     <div>
       <h2>{t("System Overview")}</h2>
       <div className="grid">
-        <div className="card hero-card">
+        {systemInfo.cpu ? <div className="card hero-card">
           <div className="card-header">
             <Icon name="cpu" />
             <div>
@@ -344,11 +246,11 @@ function OverviewPage({ systemInfo }: { systemInfo: SystemInfo }) {
             <div className="progress" style={{ width: `${systemInfo.cpu.total_usage}%` }}></div>
           </div>
           <div className="info-row">
-            <span>{t("Cores:")} {systemInfo.cpu.physical_cores} / {systemInfo.cpu.logical_cores}</span>
+            <span>{t("Cores:")} {systemInfo.cpu.physical_cores ?? "—"} / {systemInfo.cpu.logical_cores}</span>
           </div>
-        </div>
+        </div> : <UnavailableCard kind="cpu" state={systemInfo.source_states.cpu} />}
 
-        <div className="card hero-card">
+        {systemInfo.memory ? <div className="card hero-card">
           <div className="card-header">
             <Icon name="memory" />
             <div>
@@ -363,33 +265,35 @@ function OverviewPage({ systemInfo }: { systemInfo: SystemInfo }) {
           <div className="info-row">
             <span>{t("Used:")} {formatBytes(systemInfo.memory.used_bytes)}</span>
           </div>
-        </div>
+        </div> : <UnavailableCard kind="memory" state={systemInfo.source_states.memory} />}
 
-        <div className="card hero-card">
+        {gpu ? <div className="card hero-card">
           <div className="card-header">
             <Icon name="gpu" />
             <div>
               <h3>{t("GPU")}</h3>
-              <small>{systemInfo.gpu.name}</small>
+              <small>{gpu.name}</small>
             </div>
           </div>
-          <div className="big-value">{systemInfo.gpu.utilization.toFixed(1)}%</div>
+          <div className="big-value">{gpu.utilization.toFixed(1)}%</div>
           <div className="progress-bar">
-            <div className="progress" style={{ width: `${systemInfo.gpu.utilization}%` }}></div>
+            <div className="progress" style={{ width: `${gpu.utilization}%` }}></div>
           </div>
           <div className="info-row">
-            <span>{t("Memory:")} {formatBytes(systemInfo.gpu.memory_used_bytes)}</span>
+            <span>{t("Memory:")} {formatBytes(gpu.memory_used_bytes)}</span>
           </div>
-        </div>
+        </div> : <UnavailableCard kind="gpu" state={systemInfo.source_states.gpu} />}
       </div>
 
-      <StorageOverview storage={systemInfo.storage} />
+      {systemInfo.windows_storage ? <WindowsStorage snapshot={systemInfo.windows_storage} throughput={systemInfo.windows_disk_throughput} english={english} intervalMs={runtime?.effective_interval_ms} onDetails={onStorageDetails}/> : <StorageOverview storage={systemInfo.storage} />}
+      {systemInfo.source_states.storage !== "ok" && <UnavailableCard kind="disk" state={systemInfo.source_states.storage} />}
     </div>
   );
 }
 
 interface ChartProps {
   history: [number, number][];
+  view?: HistoryView | null;
   label: string;
   /** Value unit: "%" (0-100 fixed axis), "MB/s" (dynamic axis), etc. */
   unit?: "%" | "MB/s" | "°C";
@@ -402,7 +306,8 @@ interface ChartProps {
   rangeEnd?: number;
 }
 
-function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd }: ChartProps) {
+function Chart({ history, view, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd }: ChartProps) {
+  const english=useContext(LanguageContext)==="en";
   if (history.length === 0) return null;
 
   const W = 800;
@@ -421,10 +326,12 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
   // Downsample to a vertex budget while preserving first/last and each
   // bucket's min/max, so a spike is never smoothed away and the newest point
   // is never dropped (R10).
-  const pts = downsamplePreserveExtremes(history, 400);
+  const segments: [number,number][][] = view ? view.segments.map(segment=>segment.map(p=>[p.t,p.value])) : temperatureSegments(history,gap_secs,400);
+  const pts = segments.flat();
+  const bounds=view?.segments.flat()??[];
 
   // Y axis: fixed 0-100 for percentages; dynamic for rates/temps (F06).
-  const vals = pts.map(([, v]) => v);
+  const vals = bounds.length ? bounds.flatMap(p=>[p.min,p.max]) : pts.map(([, v]) => v);
   let yMin = 0;
   let yMax = 100;
   if (unit !== "%") {
@@ -438,21 +345,6 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
   const toX = (t: number) => ((t - tMin) / tSpan) * W;
   const toY = (v: number) => PAD_TOP + (1 - (v - yMin) / ySpan) * (H - PAD_TOP - PAD_BOTTOM);
 
-  // Split into segments wherever the time gap exceeds the (range-aware)
-  // threshold, so sleep / collection gaps render as breaks, not connected
-  // lines (F07, R10).
-  const segments: [number, number][][] = [];
-  let current: [number, number][] = [];
-  for (let i = 0; i < pts.length; i++) {
-    const [t, v] = pts[i];
-    if (i > 0 && t - pts[i - 1][0] > gap_secs) {
-      if (current.length > 0) segments.push(current);
-      current = [];
-    }
-    current.push([t, v]);
-  }
-  if (current.length > 0) segments.push(current);
-
   const singlePoint = pts.length === 1;
 
   const fmtVal = (v: number) =>
@@ -460,6 +352,7 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
 
   return (
     <div className="chart" role="img" aria-label={`${label} history chart, ${history.length} samples${pts.length < history.length ? `, showing ${pts.length}` : ""}`}>
+      <HistoryNotice view={view} english={english}/>
       <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <defs>
           <linearGradient id={`${label}-area`} x1="0" x2="0" y1="0" y2="1">
@@ -472,9 +365,10 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
             <line key={f} x1="0" y1={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)} x2={W} y2={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)} />
           ))}
         </g>
+        {bounds.filter(p=>p.min!==p.max).map((p,i)=><line key={`range-${i}`} x1={toX(p.t)} x2={toX(p.t)} y1={toY(p.min)} y2={toY(p.max)} stroke="#0a84ff" strokeWidth="2"><title>{`${p.count} records · ${p.min}–${p.max} · ${p.granularity_secs}s`}</title></line>)}
         {singlePoint ? (
           // A single sample is a dot, not an area spanning the full width.
-          <circle cx={toX(ts[0])} cy={toY(vals[0])} r="4" fill="#0a84ff" />
+          <circle cx={toX(ts[0])} cy={toY(pts[0][1])} r="4" fill="#0a84ff" />
         ) : (
           segments.map((seg, si) => {
             if (seg.length === 1) {
@@ -503,14 +397,14 @@ function Chart({ history, label, unit = "%", gap_secs = 5, rangeStart, rangeEnd 
 
 // Overview temperature history: labelled axes, fixed one-hour window and honest gaps.
 export function TempSparkline({ historyKey, label }: { historyKey: string; label: string }) {
-  const { points, status } = useHistoryQuery("disk.temperature", historyKey, 3600);
+  const { points, status, view } = useHistoryQuery("disk.temperature", historyKey, 3600);
   const language = useContext(LanguageContext);
-  return <TemperatureTrend key={historyKey} history={points} status={status} label={label} english={language === "en"} />;
+  return <TemperatureTrend key={historyKey} history={points} view={view} status={status} label={label} english={language === "en"} />;
 }
 
 function CpuPage({ cpu }: { cpu: CpuInfo }) {
   const t = useText();
-  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("cpu.total_usage", "system", 3600);
+  const { points: history, view: historyView, status: histStatus, loaded: histLoaded } = useHistoryQuery("cpu.total_usage", "system", 3600);
 
   return (
     <div>
@@ -519,7 +413,7 @@ function CpuPage({ cpu }: { cpu: CpuInfo }) {
         <h3>{cpu.name}</h3>
         <div className="info">
           <div className="label">{t("Physical Cores:")}</div>
-          <div className="value">{cpu.physical_cores}</div>
+          <div className="value">{cpu.physical_cores ?? "—"}</div>
         </div>
         <div className="info">
           <div className="label">{t("Logical Processors:")}</div>
@@ -553,7 +447,7 @@ function CpuPage({ cpu }: { cpu: CpuInfo }) {
         <h3>{t("Usage History (Last Hour)")}</h3>
         {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
         {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
-        {history.length > 0 && <Chart history={history} label="cpu" gap_secs={gapThresholdSecs(3600)} />}
+        {history.length > 0 && <Chart history={history} view={historyView} label="cpu" gap_secs={gapThresholdSecs(3600)} />}
       </div>
     </div>
   );
@@ -561,7 +455,7 @@ function CpuPage({ cpu }: { cpu: CpuInfo }) {
 
 function MemoryPage({ memory }: { memory: MemoryInfo }) {
   const t = useText();
-  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("memory.used_percent", "system", 3600);
+  const { points: history, view: historyView, status: histStatus, loaded: histLoaded } = useHistoryQuery("memory.used_percent", "system", 3600);
 
   return (
     <div>
@@ -593,7 +487,7 @@ function MemoryPage({ memory }: { memory: MemoryInfo }) {
         <h3>{t("Usage History (Last Hour)")}</h3>
         {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
         {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
-        {history.length > 0 && <Chart history={history} label="memory" gap_secs={gapThresholdSecs(3600)} />}
+        {history.length > 0 && <Chart history={history} view={historyView} label="memory" gap_secs={gapThresholdSecs(3600)} />}
       </div>
     </div>
   );
@@ -601,7 +495,9 @@ function MemoryPage({ memory }: { memory: MemoryInfo }) {
 
 function GpuPage({ gpu }: { gpu: GpuInfo }) {
   const t = useText();
-  const { points: history, status: histStatus, loaded: histLoaded } = useHistoryQuery("gpu.utilization", "gpu0", 3600);
+  const zh = useContext(LanguageContext) === "zh";
+  const [archive,setArchive]=useState("");
+  const { points: history, view: historyView, status: histStatus, loaded: histLoaded } = useHistoryQuery("gpu.utilization", archive || gpu.object_id, 3600);
 
   return (
     <div>
@@ -620,21 +516,27 @@ function GpuPage({ gpu }: { gpu: GpuInfo }) {
       <div className="card">
         <h3>{t("Memory")}</h3>
         <div className="info">
-          <div className="label">{t("In Use:")}</div>
+          <div className="label">{gpu.windows_memory ? (zh?"合计已用（专用 + 共享）":"Total used (dedicated + shared)") : t("In Use:")}</div>
           <div className="value">{formatBytes(gpu.memory_used_bytes)}</div>
         </div>
-        <div className="info">
+        {!gpu.windows_memory && <div className="info">
           <div className="label">{t("Allocated:")}</div>
-          <div className="value">{formatBytes(gpu.memory_allocated_bytes)}</div>
-        </div>
-        <p className="note">{t("Unified memory architecture - no separate VRAM")}</p>
+          <div className="value">{gpu.memory_allocated_bytes === null ? "—" : formatBytes(gpu.memory_allocated_bytes)}</div>
+        </div>}
+        {gpu.windows_memory ? <>
+          <p>{zh?"专用使用量":"Dedicated usage"}：{formatBytes(gpu.windows_memory.dedicated_used_bytes)}</p>
+          <p>{zh?"共享使用量":"Shared usage"}：{formatBytes(gpu.windows_memory.shared_used_bytes)}</p>
+          <p className="note">{zh?"Windows 全局 GPU 统计；集显的专用部分可能来自系统内存预留。不据此推算独立显存占用率。":"Global Windows GPU counters. Dedicated memory on an integrated GPU may be reserved system RAM; no VRAM percentage is inferred."}</p>
+          {!!gpu.windows_memory.unverified_adapter_count&&<p className="note">{zh?`另外 ${gpu.windows_memory.unverified_adapter_count} 个适配器条目尚未确认有效指标或独立硬件身份。`:`${gpu.windows_memory.unverified_adapter_count} additional adapter entries have no confirmed metrics or independent hardware identity.`}</p>}
+          <select aria-label={zh?"GPU 历史连接":"GPU history connection"} value={archive} onChange={e=>setArchive(e.target.value)}><option value="">{zh?"本次连接":"Current connection"}</option>{gpu.windows_memory.history_series.filter(s=>s.uid!==gpu.object_id).map(s=><option key={s.uid} value={s.uid}>{s.name} · {new Date(s.created_at*1000).toLocaleString()}</option>)}</select>
+        </> : <p className="note">{t("Unified memory architecture - no separate VRAM")}</p>}
       </div>
 
       <div className="card">
         <h3>{t("Usage History (Last Hour)")}</h3>
         {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
         {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
-        {history.length > 0 && <Chart history={history} label="gpu" gap_secs={gapThresholdSecs(3600)} />}
+        {history.length > 0 && <Chart history={history} view={historyView} label="gpu" gap_secs={gapThresholdSecs(3600)} />}
       </div>
     </div>
   );
@@ -657,7 +559,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
   // Single-flight query keyed by (metric, objectId=uid, range): switching disk
   // or range cancels the prior flight and clears the curve, so a stale or
   // previous-disk series is never rendered (R10 cache isolation).
-  const { points: history, status: histStatus, loaded: histLoaded } =
+  const { points: history, view: historyView, status: histStatus, loaded: histLoaded } =
     useHistoryQuery("disk.throughput", activeKey, rangeSecs);
 
   // Pin the x-axis to the requested window so leading/trailing gaps stay empty.
@@ -735,7 +637,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
         {histStatus === "error" && <p className="note" role="status">{t("Failed to load history")}</p>}
         {histStatus !== "error" && histLoaded && history.length === 0 && <p className="note">{t("No history yet")}</p>}
         {history.length > 0 && (
-          <Chart history={history} label="disk" unit="MB/s" gap_secs={gapThresholdSecs(rangeSecs)} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+          <Chart history={history} view={historyView} label="disk" unit="MB/s" gap_secs={gapThresholdSecs(rangeSecs)} rangeStart={rangeStart} rangeEnd={rangeEnd} />
         )}
       </div>
     </div>
@@ -744,6 +646,7 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
 
 export function ProcessesPage() {
   const t = useText();
+  const runtime = useContext(RuntimeContext);
   const [page, setPage] = useState<ProcessPage | null>(null);
   const [sortBy, setSortBy] = useState<ProcessSortKey>("memory");
   const [searchTerm, setSearchTerm] = useState("");
@@ -773,7 +676,7 @@ export function ProcessesPage() {
   };
 
   const endProcess = async () => {
-    if (term.phase !== "confirming") return; // only a confirming target can be sent
+    if (!runtime?.terminate_process || term.phase !== "confirming") return; // only a confirming target can be sent
     const target = term.target; // immutable snapshot
     setTerm({ phase: "sending", target });
     try {
@@ -803,6 +706,7 @@ export function ProcessesPage() {
   useEffect(() => {
     let cancelled = false;
     const fetchProcesses = async () => {
+      if (document.hidden || cancelled) return;
       try {
         const result = await invoke<ProcessPage>("get_processes", {
           search: debouncedSearch || null,
@@ -885,17 +789,17 @@ export function ProcessesPage() {
             <button className={sortBy === "cpu" ? "active" : ""} onClick={() => setSortBy("cpu")}>
               {t("Sort by CPU")}
             </button>
-            <button className={sortBy === "diskread" ? "active" : ""} onClick={() => setSortBy("diskread")}>
+            <button disabled={!runtime?.process_disk_io} className={sortBy === "diskread" ? "active" : ""} onClick={() => setSortBy("diskread")}>
               {t("Sort by Read")}
             </button>
-            <button className={sortBy === "diskwrite" ? "active" : ""} onClick={() => setSortBy("diskwrite")}>
+            <button disabled={!runtime?.process_disk_io} className={sortBy === "diskwrite" ? "active" : ""} onClick={() => setSortBy("diskwrite")}>
               {t("Sort by Write")}
             </button>
           </div>
         </div>
         {page && (
           <p className="note">
-            {t("Showing")} {processes.length} {t("of")} {matched} {t("matching")} · {page.total_readable} {t("readable processes (system-wide disk I/O)")}
+            {t("Showing")} {processes.length} {t("of")} {matched} {t("matching")} · {page.total_readable} {runtime?.process_disk_io ? t("enumerated processes (system-wide disk I/O)") : t("enumerated processes")}
           </p>
         )}
         {loadError && <p className="note">{t("Failed to load processes")}</p>}
@@ -910,9 +814,10 @@ export function ProcessesPage() {
           </select>
         </div>
         <div className="process-actions">
-          <button ref={endButtonRef} className="danger-button" disabled={!selected || confirming || loadError} onClick={() => selected && setTerm({ phase: "confirming", target: selected })}>{t("End process")}</button>
+          <button ref={endButtonRef} className="danger-button" disabled={!runtime?.terminate_process || !selected || confirming || loadError} onClick={() => selected && setTerm({ phase: "confirming", target: selected })}>{t("End process")}</button>
           <span>{selected ? `${selected.name} · PID ${selected.pid}` : t("Select a process")}</span>
         </div>
+        {runtime?.platform === "windows" && <p className="note">{t("Windows process storage I/O and process termination are not implemented. Memory is working set; CPU is normalized to the whole machine.")}</p>}
         {terminationMessage && <p role="status" className="note">{terminationMessage}</p>}
         {confirming && selected && <div className="confirm-panel" role="alertdialog" aria-modal="false" aria-labelledby="end-title" aria-describedby="end-description">
           <h3 id="end-title">{t("End process")}: {selected.name} · PID {selected.pid}</h3>
@@ -941,8 +846,8 @@ export function ProcessesPage() {
 
                 <td><input type="radio" name="selected-process" aria-label={`${t("Select a process")}: ${proc.name} PID ${proc.pid}`} disabled={confirming} checked={selected?.pid === proc.pid && selected.start_marker === proc.start_marker} onChange={() => {setTerm({ phase: "selected", target: proc }); setTerminationMessage("");}} />{proc.pid}</td>
                 <td>{proc.name}</td>
-                <td>{formatBytes(proc.memory_bytes)}</td>
-                <td>{proc.cpu_usage.toFixed(1)}%</td>
+                <td>{proc.memory_bytes === null ? "—" : formatBytes(proc.memory_bytes)}</td>
+                <td>{proc.cpu_usage === null ? "—" : `${proc.cpu_usage.toFixed(1)}%`}</td>
                 <td>{fmtRate(proc, proc.disk_read_bps)}</td>
                 <td>{fmtRate(proc, proc.disk_write_bps)}</td>
               </tr>
@@ -978,6 +883,8 @@ interface LoginItemResult {
 
 function SettingsPage() {
   const t = useText();
+  const [quitError, setQuitError] = useState(false);
+  const runtime = useContext(RuntimeContext);
   // R9/A13: draft (what the user is editing) is separate from the last saved
   // value; submission is debounced so a burst of keystrokes never sends an
   // intermediate/0 value, and a failed save shows an error with the draft kept.
@@ -1117,6 +1024,7 @@ function SettingsPage() {
           <div className="value">
             <button
               className={shown.launch_at_login ? "active" : ""}
+              disabled={!runtime?.launch_at_login}
               onClick={() => toggleLogin(!shown.launch_at_login)}
             >
               {shown.launch_at_login ? t("On") : t("Off")}
@@ -1124,9 +1032,11 @@ function SettingsPage() {
           </div>
         </div>
         <p className="note">{t("Closing the window keeps monitoring in the menu bar; Quit stops collection.")}</p>
+        {runtime?.platform === "windows" && <p className="note">{t("Windows launch at login is not implemented.")}</p>}
         {loginNote && <p className="note" role="status">{loginNote}</p>}
       </div>
 
+      <div className="card"><button onClick={() => { setQuitError(false); void invoke("quit_app").catch(() => setQuitError(true)); }}>{t("Quit application")}</button>{quitError && <p role="alert">{t("Failed to quit")}</p>}</div>
       {saveState === "saved" && <p className="note">{t("Settings saved")}</p>}
       {saveState === "error" && <p className="note" role="alert">{t("Failed to save settings")} {errorMsg}</p>}
     </div>
@@ -1134,3 +1044,8 @@ function SettingsPage() {
 }
 
 export default App;
+function UnavailableCard({ kind, state = "unverified" }: { kind: "cpu" | "memory" | "gpu" | "disk"; state?: SourceState }) {
+  const zh = useContext(LanguageContext) === "zh";
+  const labels = { cpu: zh ? "处理器" : "CPU", memory: zh ? "内存" : "Memory", gpu: "GPU", disk: zh ? "存储设备" : "Storage" };
+  return <section className="card" role="status"><h3>{labels[kind]}</h3><p>{sourceMessage(state, zh)}</p></section>;
+}

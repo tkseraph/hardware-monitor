@@ -1,6 +1,7 @@
 //! Process collection with system-wide storage I/O (S6).
 //!
-//! Memory and CPU come from sysinfo; per-process disk read/write bytes come
+//! Windows CPU/memory/creation time use one native handle; Mac uses sysinfo.
+//! Mac per-process disk read/write bytes come
 //! from proc_pid_rusage (RUSAGE_INFO_V4). Rates are computed by differencing
 //! cumulative counters against the previous scan keyed by (pid, start-time)
 //! so PID reuse never produces a spurious spike (F13, S6). The figures are
@@ -8,19 +9,21 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Instant;
-use sysinfo::System;
+use sysinfo::{ProcessRefreshKind, System};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
     /// Process start-time marker so a recycled PID is not joined to the
     /// previous owner's I/O counters.
-    pub start_marker: u64,
+    pub start_marker: Option<String>,
     pub name: String,
-    pub memory_bytes: u64,
-    pub cpu_usage: f32,
+    pub memory_bytes: Option<u64>,
+    pub cpu_usage: Option<f32>,
     /// Cumulative bytes read/written since process start (system-wide).
     pub disk_read_bytes: u64,
     pub disk_write_bytes: u64,
@@ -60,6 +63,12 @@ pub struct ProcessCollector {
     sys: System,
     /// (pid, start_marker) -> previous cumulative counters.
     baselines: HashMap<(u32, u64), IoBaseline>,
+    #[cfg(target_os = "macos")]
+    seen_processes: HashSet<(u32, u64)>,
+    #[cfg(target_os = "macos")]
+    last_scan: Option<Instant>,
+    #[cfg(target_os = "windows")]
+    windows_baselines: HashMap<u32, crate::platform::windows::processes::Reading>,
 }
 
 impl ProcessCollector {
@@ -67,6 +76,12 @@ impl ProcessCollector {
         Self {
             sys: System::new(),
             baselines: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            seen_processes: HashSet::new(),
+            #[cfg(target_os = "macos")]
+            last_scan: None,
+            #[cfg(target_os = "windows")]
+            windows_baselines: HashMap::new(),
         }
     }
 
@@ -79,7 +94,13 @@ impl ProcessCollector {
     /// read never produces a spurious lifetime-to-date spike, and a persistent
     /// failure never masquerades as "0 B/s".
     pub fn scan(&mut self) -> ProcessPage {
-        self.sys.refresh_processes();
+        self.sys.refresh_cpu_usage();
+        #[cfg(target_os = "windows")]
+        self.sys
+            .refresh_processes_specifics(ProcessRefreshKind::new());
+        #[cfg(target_os = "macos")]
+        self.sys
+            .refresh_processes_specifics(ProcessRefreshKind::new().with_memory().with_cpu());
 
         let observed_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -90,13 +111,28 @@ impl ProcessCollector {
         let mut processes = Vec::new();
         let mut seen: HashMap<(u32, u64), IoBaseline> = HashMap::new();
 
+        #[cfg(target_os = "macos")]
+        let mut current_processes = HashSet::new();
+        #[cfg(target_os = "windows")]
+        let mut current_windows = HashMap::new();
+        #[cfg(target_os = "macos")]
+        let valid_window = self.last_scan.is_some_and(|previous| {
+            now.duration_since(previous) >= sysinfo::MINIMUM_CPU_UPDATE_INTERVAL
+                && now.duration_since(previous).as_secs() < 120
+        });
         for (pid, process) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
-            let start_marker = process.start_time();
+            #[cfg(target_os = "macos")]
+            let marker = Some(process.start_time()).filter(|&v| v > 0);
+            #[cfg(target_os = "windows")]
+            let native = crate::platform::windows::processes::read_process(pid_u32);
+            #[cfg(target_os = "windows")]
+            let marker = native.as_ref().map(|r| r.creation_marker);
+            let start_marker = marker.unwrap_or(0);
             let key = (pid_u32, start_marker);
 
             // None = unreadable this pass. Never substitute (0,0).
-            let io = disk_io_bytes(pid_u32);
+            let io = marker.and_then(|_| disk_io_bytes(pid_u32));
 
             let (read_bps, write_bps, read_bytes, write_bytes) = match io {
                 Some((read, write)) => {
@@ -135,12 +171,34 @@ impl ProcessCollector {
                 }
             };
 
+            #[cfg(target_os = "macos")]
+            if marker.is_some() {
+                current_processes.insert(key);
+            }
+            #[cfg(target_os = "macos")]
+            let memory_bytes = Some(process.memory()).filter(|&bytes| bytes > 0);
+            #[cfg(target_os = "macos")]
+            let cpu_usage = process_cpu_value(
+                process.cpu_usage(),
+                self.sys.cpus().len(),
+                valid_window && marker.is_some() && self.seen_processes.contains(&key),
+            );
+            #[cfg(target_os = "windows")]
+            let (memory_bytes, cpu_usage) = native.as_ref().map_or((None, None), |reading| {
+                let usage = crate::platform::windows::processes::cpu_percent(
+                    self.windows_baselines.get(&pid_u32),
+                    reading,
+                    self.sys.cpus().len(),
+                );
+                current_windows.insert(pid_u32, *reading);
+                (reading.working_set_bytes, usage)
+            });
             processes.push(ProcessInfo {
                 pid: pid_u32,
-                start_marker,
+                start_marker: marker.map(|value| value.to_string()),
                 name: process.name().to_string(),
-                memory_bytes: process.memory(),
-                cpu_usage: process.cpu_usage(),
+                memory_bytes,
+                cpu_usage,
                 disk_read_bytes: read_bytes,
                 disk_write_bytes: write_bytes,
                 disk_read_bps: read_bps,
@@ -151,6 +209,15 @@ impl ProcessCollector {
 
         // Drop baselines for processes that no longer exist OR were unreadable.
         self.baselines = seen;
+        #[cfg(target_os = "macos")]
+        {
+            self.seen_processes = current_processes;
+            self.last_scan = Some(now);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            self.windows_baselines = current_windows;
+        }
 
         let total_readable = processes.len();
         ProcessPage {
@@ -166,6 +233,7 @@ impl ProcessCollector {
 
 /// Cumulative (disk_read_bytes, disk_write_bytes) for a pid via
 /// proc_pid_rusage. Returns None if the process is not readable.
+#[cfg(target_os = "macos")]
 fn disk_io_bytes(pid: u32) -> Option<(u64, u64)> {
     // rusage_info_t is a union; v4 is the widest flavor we read.
     let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
@@ -181,6 +249,12 @@ fn disk_io_bytes(pid: u32) -> Option<(u64, u64)> {
     } else {
         None
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn disk_io_bytes(_pid: u32) -> Option<(u64, u64)> {
+    // Windows sysinfo uses GetProcessIoCounters, whose scope is not disk-only.
+    None
 }
 
 static COLLECTOR: Mutex<Option<ProcessCollector>> = Mutex::new(None);
@@ -200,6 +274,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "opt-in read-only local process enumeration"]
     fn rate_requires_baseline() {
         // First sight of a process must yield null rates, not 0 or a spike.
         let mut c = ProcessCollector::new();
@@ -211,9 +286,37 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "opt-in read-only local process enumeration"]
     fn total_readable_matches_returned_len() {
         let mut c = ProcessCollector::new();
         let page = c.scan();
         assert_eq!(page.total_readable, page.processes.len());
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_cpu_value(raw: f32, logical_cores: usize, warmed: bool) -> Option<f32> {
+    if !warmed || !raw.is_finite() || raw < 0.0 || logical_cores == 0 {
+        return None;
+    }
+    let value = if cfg!(target_os = "windows") {
+        raw / logical_cores as f32
+    } else {
+        raw
+    };
+    if cfg!(target_os = "windows") && value > 100.0 {
+        return None;
+    }
+    Some(value)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod value_tests {
+    #[test]
+    fn cpu_requires_valid_baseline_and_denominator() {
+        assert_eq!(super::process_cpu_value(0.0, 24, true), Some(0.0));
+        assert_eq!(super::process_cpu_value(24.0, 24, false), None);
+        assert_eq!(super::process_cpu_value(24.0, 0, true), None);
+        assert_eq!(super::process_cpu_value(f32::NAN, 24, true), None);
     }
 }

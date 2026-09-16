@@ -41,6 +41,7 @@ mod tests {
         }
     }
     #[test]
+    #[ignore = "opt-in: sends SIGTERM only to a disposable child"]
     fn terminates_only_disposable_child_after_identity_check() {
         let mut child = std::process::Command::new("/bin/sleep")
             .arg("30")

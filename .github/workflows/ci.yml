@@ -1,87 +1,58 @@
-# Mac-first CI for the hardware monitor (R13).
-#
-# Gates: rustfmt, Clippy (warnings = errors), TypeScript types, Node unit
-# tests, Rust unit tests, and the Python probe privacy/status contract tests.
-#
-# Hard safety constraints (per the remediation plan): CI must NEVER run real
-# login-item registration, trigger system sleep, or send real process
-# termination. All covered behavior is exercised through synthetic fixtures,
-# temp dirs, and in-memory databases only.
-
+# Hardware and disposable-child termination tests are explicit opt-in.
 name: ci
-
 on:
   push:
     branches: [main]
   pull_request:
-  # Allow manual runs without a push.
   workflow_dispatch:
-
 jobs:
-  frontend:
-    name: frontend (types + node tests)
-    runs-on: macos-latest
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: monitor-app
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: monitor-app/package-lock.json
-
-      # Deterministic install from the lockfile; never resolves "latest".
-      - name: install (locked)
-        run: npm ci
-
-      - name: typecheck
-        run: npm run typecheck
-
-      - name: node unit tests
-        run: npm test
-
-  rust:
-    name: rust (fmt + clippy strict + tests)
-    runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: monitor-app/src-tauri
-    steps:
-      - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.98.1
           components: rustfmt, clippy
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      # Strict: every warning is a build failure so new lints can't regress.
-      - name: clippy (strict)
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: rust unit tests
-        run: cargo test --locked
-
-      # Tauri needs these to *compile* on macOS runners; tests themselves use
-      # fixtures only. No app is launched, no login item touched, no sleep.
-      - name: build check (release, unsigned)
-        run: cargo build --locked --release
-
+      - name: locked frontend dependencies
+        run: npm ci
+      - name: frontend types
+        run: npm run typecheck
+      - name: frontend production-function tests
+        run: npm test
+      - name: frontend build required by Tauri
+        run: npm run build
+      - name: rust formatting
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+      - name: strict Rust checks
+        run: cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - name: deterministic Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: native release build (no signing or publishing)
+        run: cargo build --locked --release --manifest-path src-tauri/Cargo.toml
   probes:
-    name: probe privacy/status contract (synthetic)
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      # Synthetic decoy fixtures only. The contract test asserts forbidden
-      # fields are dropped and timeouts never leak embedded output (A14/A25).
-      - name: probe contract tests
-        run: python3 scripts/probes/test_probe_privacy.py
+          python-version: '3.13'
+      - name: existing synthetic privacy/status tests
+        run: python -X utf8 scripts/probes/test_probe_privacy.py
+      - name: Windows probe aggregation (synthetic, no system API calls)
+        run: python -X utf8 scripts/probes/test_windows_readonly.py

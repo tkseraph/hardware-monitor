@@ -1,95 +1,33 @@
-// Shared history-query hook and pure chart helpers (R10).
-//
-// Goals:
-//  - single-flight: a new fetch supersedes any in-flight one; a stale response
-//    can never overwrite newer data (sequence guard + cancellation).
-//  - empty / loading / error are distinct states the UI renders honestly —
-//    no fabricated points, no stale curve shown for a different selection.
-//  - pause polling while the page/tab is hidden so the WebView does no useless
-//    work; backend sampling is independent and unaffected.
-
-import { useEffect, useRef, useState } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-
-export type HistoryStatus = "idle" | "loading" | "ok" | "error";
-
-export interface HistoryQuery {
-  points: [number, number][];
-  status: HistoryStatus;
-  /** True once at least one fetch completed (ok or error) for this key. */
-  loaded: boolean;
-}
-
-/**
- * Poll `get_history` for one metric/object/range. The query is keyed by
- * (metricId, objectId, durationSecs): changing any of them cancels the old
- * flight and starts clean, so a switched disk never shows the previous disk's
- * curve (R10 cache isolation).
- */
-export function useHistoryQuery(
-  metricId: string,
-  objectId: string,
-  durationSecs: number,
-  pollMs = 5000,
-): HistoryQuery {
-  const [points, setPoints] = useState<[number, number][]>([]);
-  const [status, setStatus] = useState<HistoryStatus>("idle");
-  const [loaded, setLoaded] = useState(false);
-  // Monotonic sequence: only the latest issued fetch may commit its result.
-  const seq = useRef(0);
-
-  useEffect(() => {
-    if (!isTauri() || !objectId) {
-      setPoints([]);
-      setStatus("idle");
-      setLoaded(false);
-      return;
-    }
-    // New key: clear the previous curve immediately so we never render stale.
-    setPoints([]);
-    setStatus("loading");
-    setLoaded(false);
-    let cancelled = false;
-
-    const fetchOnce = async () => {
-      const mySeq = ++seq.current;
+// Versioned segmented history. A changed key never exposes the previous query's data.
+import {useEffect,useMemo,useState} from "react";
+import {invoke,isTauri} from "@tauri-apps/api/core";
+import {historySegments,type HistoryView} from "./history-view";
+export type HistoryStatus="idle"|"loading"|"ok"|"error";
+export interface HistoryQuery {points:[number,number][];segments:[number,number][][];view:HistoryView|null;status:HistoryStatus;loaded:boolean}
+export function useHistoryQuery(metricId:string,objectId:string,durationSecs:number,pollMs=5000):HistoryQuery {
+  const key=JSON.stringify([metricId,objectId,durationSecs]);
+  const [state,setState]=useState<{key:string;view:HistoryView|null;status:HistoryStatus;loaded:boolean}>({key:"",view:null,status:"idle",loaded:false});
+  useEffect(()=>{
+    if(!isTauri()||!objectId){setState({key,view:null,status:"idle",loaded:false});return;}
+    let cancelled=false,busy=false;
+    setState({key,view:null,status:"loading",loaded:false});
+    const fetchOnce=async()=>{
+      if(cancelled||busy||document.visibilityState==="hidden")return;
+      busy=true;
       try {
-        const data = await invoke<[number, number][]>("get_history", {
-          metricId,
-          objectId,
-          durationSecs,
-        });
-        if (cancelled || mySeq !== seq.current) return; // superseded
-        setPoints(data);
-        setStatus("ok");
-        setLoaded(true);
-      } catch (err) {
-        if (cancelled || mySeq !== seq.current) return;
-        setPoints([]);
-        setStatus("error");
-        setLoaded(true);
-        console.error("Failed to fetch history:", err);
-      }
+        const view=await invoke<HistoryView>("get_history_v2",{metricId,objectId,durationSecs});
+        historySegments(view);
+        if(!cancelled)setState({key,view,status:"ok",loaded:true});
+      }catch{if(!cancelled)setState({key,view:null,status:"error",loaded:true});}
+      finally{busy=false;}
     };
-
-    fetchOnce();
-    const interval = setInterval(() => {
-      // Skip polling while hidden; the next visible tick refetches.
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      fetchOnce();
-    }, pollMs);
-
-    const onVisible = () => { if (document.visibilityState === "visible") fetchOnce(); };
-    document.addEventListener("visibilitychange", onVisible);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [metricId, objectId, durationSecs, pollMs]);
-
-  return { points, status, loaded };
+    void fetchOnce();const timer=setInterval(()=>void fetchOnce(),pollMs);
+    const visible=()=>{if(document.visibilityState==="visible")void fetchOnce();};
+    document.addEventListener("visibilitychange",visible);
+    return()=>{cancelled=true;clearInterval(timer);document.removeEventListener("visibilitychange",visible);};
+  },[key,metricId,objectId,durationSecs,pollMs]);
+  const current=state.key===key?state:{view:null,status:"loading" as const,loaded:false};
+  const segments=useMemo(()=>current.view?historySegments(current.view):[],[current.view]);
+  return{points:segments.flat(),segments,view:current.view,status:current.status,loaded:current.loaded};
 }
-
-export { downsamplePreserveExtremes, gapThresholdSecs } from "./history-data";
+export {downsamplePreserveExtremes,gapThresholdSecs} from "./history-data";
