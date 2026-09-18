@@ -216,6 +216,14 @@ impl HistoryDb {
             ",
         )?;
         self.ensure_version(1)?;
+        let has_segment: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('metric_samples') WHERE name='segment_id')", [], |r| r.get(0)
+        )?;
+        if !has_segment {
+            self.conn
+                .execute("ALTER TABLE metric_samples ADD COLUMN segment_id TEXT", [])?;
+        }
+        self.ensure_version(2)?;
         Ok(())
     }
 
@@ -253,12 +261,13 @@ impl HistoryDb {
     /// with a reused prepared statement. Either the whole batch lands or none
     /// does — a mid-loop failure can no longer leave half a snapshot persisted.
     /// `rows` is (metric_id, object_id, value, unit); all share `timestamp`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn insert_samples_batch(
         &self,
         timestamp: i64,
         rows: &[(&str, &str, f64, &str)],
     ) -> SqlResult<()> {
-        self.insert_samples_batch_inner(timestamp, rows, DB_BUDGET_BYTES)
+        self.insert_samples_batch_inner(timestamp, rows, DB_BUDGET_BYTES, None)
     }
 
     #[cfg(test)]
@@ -268,7 +277,7 @@ impl HistoryDb {
         rows: &[(&str, &str, f64, &str)],
         budget_bytes: i64,
     ) -> SqlResult<()> {
-        self.insert_samples_batch_inner(timestamp, rows, budget_bytes)
+        self.insert_samples_batch_inner(timestamp, rows, budget_bytes, None)
     }
 
     fn insert_samples_batch_inner(
@@ -276,6 +285,7 @@ impl HistoryDb {
         timestamp: i64,
         rows: &[(&str, &str, f64, &str)],
         budget_bytes: i64,
+        segment: Option<&str>,
     ) -> SqlResult<()> {
         if rows.is_empty() {
             return Ok(());
@@ -284,10 +294,10 @@ impl HistoryDb {
         let tx = self.conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO metric_samples (timestamp, metric_id, object_id, value, unit, segment_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for (metric_id, object_id, value, unit) in rows {
-                stmt.execute((timestamp, *metric_id, *object_id, *value, *unit))?;
+                stmt.execute((timestamp, *metric_id, *object_id, *value, *unit, segment))?;
             }
         }
         tx.commit()?;
@@ -482,7 +492,7 @@ impl HistoryDb {
         now: i64,
     ) -> SqlResult<crate::history_view::HistoryView> {
         use crate::history_view::Point;
-        let mut merged = std::collections::BTreeMap::<i64, Point>::new();
+        let mut merged = std::collections::BTreeMap::<(i64, Option<String>), Point>::new();
         let decode = |r: &rusqlite::Row<'_>| -> SqlResult<Point> {
             Ok(Point {
                 t: r.get(0)?,
@@ -493,6 +503,7 @@ impl HistoryDb {
                 granularity_secs: r.get(5)?,
                 first_ts: r.get(6)?,
                 last_ts: r.get(7)?,
+                segment_id: r.get(8)?,
             })
         };
         let mut insert = |point: Point| -> SqlResult<()> {
@@ -504,10 +515,10 @@ impl HistoryDb {
             {
                 return Err(rusqlite::Error::InvalidQuery);
             }
-            match merged.get(&point.t) {
+            match merged.get(&(point.t, point.segment_id.clone())) {
                 Some(old) if old.granularity_secs < point.granularity_secs => {}
                 _ => {
-                    merged.insert(point.t, point);
+                    merged.insert((point.t, point.segment_id.clone()), point);
                 }
             }
             Ok(())
@@ -523,12 +534,12 @@ impl HistoryDb {
             if lo >= hi {
                 continue;
             }
-            let mut statement=self.conn.prepare("SELECT bucket_start,avg_value,min_value,max_value,sample_count,granularity_secs,first_ts,last_ts FROM metric_buckets WHERE metric_id=?1 AND object_id=?2 AND granularity_secs=?3 AND bucket_start+granularity_secs>?4 AND bucket_start<?5 ORDER BY bucket_start")?;
+            let mut statement=self.conn.prepare("SELECT bucket_start,avg_value,min_value,max_value,sample_count,granularity_secs,first_ts,last_ts,NULL FROM metric_buckets WHERE metric_id=?1 AND object_id=?2 AND granularity_secs=?3 AND bucket_start+granularity_secs>?4 AND bucket_start<?5 ORDER BY bucket_start")?;
             for row in statement.query_map((metric_id, object_id, granularity, lo, hi), decode)? {
                 insert(row?)?;
             }
         }
-        let mut statement=self.conn.prepare("SELECT timestamp,AVG(value),MIN(value),MAX(value),COUNT(*),1,timestamp,timestamp FROM metric_samples WHERE metric_id=?1 AND object_id=?2 AND timestamp>=?3 AND timestamp<?4 GROUP BY timestamp ORDER BY timestamp")?;
+        let mut statement=self.conn.prepare("SELECT timestamp,AVG(value),MIN(value),MAX(value),COUNT(*),1,timestamp,timestamp,segment_id FROM metric_samples WHERE metric_id=?1 AND object_id=?2 AND timestamp>=?3 AND timestamp<?4 GROUP BY timestamp,segment_id ORDER BY timestamp")?;
         for row in statement.query_map((metric_id, object_id, start, end), decode)? {
             insert(row?)?;
         }
@@ -717,10 +728,18 @@ pub fn init_db_at(db_path: PathBuf) -> SqlResult<()> {
 
 /// R2/A05: record a whole snapshot atomically; update health on the result.
 /// Returns the error to the caller instead of swallowing it (no `let _ =`).
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub fn record_snapshot_batch(timestamp: i64, rows: &[(&str, &str, f64, &str)]) -> SqlResult<()> {
+    record_segment_batch(timestamp, rows, None)
+}
+pub fn record_segment_batch(
+    timestamp: i64,
+    rows: &[(&str, &str, f64, &str)],
+    segment: Option<&str>,
+) -> SqlResult<()> {
     let guard = DB.lock().unwrap();
     if let Some(ref db) = *guard {
-        match db.insert_samples_batch(timestamp, rows) {
+        match db.insert_samples_batch_inner(timestamp, rows, DB_BUDGET_BYTES, segment) {
             Ok(()) => {
                 set_health(HistoryHealth::Ok);
                 Ok(())
@@ -737,7 +756,7 @@ pub fn record_snapshot_batch(timestamp: i64, rows: &[(&str, &str, f64, &str)]) -
         }
     } else {
         set_health(HistoryHealth::Unavailable);
-        Ok(())
+        Err(rusqlite::Error::InvalidQuery)
     }
 }
 
@@ -803,6 +822,50 @@ mod view_tests {
         assert_eq!(point.max, 10.0);
         assert!(view.aggregated);
     }
+    #[test]
+    fn recorded_boundaries_survive_same_second_and_reopening() {
+        let root = std::env::temp_dir().join(format!(
+            "monitor-segments-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("synthetic.db");
+        {
+            // Simulate the old schema, including an existing user row.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE metric_samples(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp INTEGER NOT NULL,metric_id TEXT NOT NULL,object_id TEXT NOT NULL,value REAL NOT NULL,unit TEXT NOT NULL); INSERT INTO metric_samples(timestamp,metric_id,object_id,value,unit) VALUES(999,'cpu.total_usage','system',3,'%');").unwrap();
+        }
+        {
+            let db = HistoryDb::new(path.clone()).unwrap();
+            for (segment, value) in [("first", 10.0), ("second", 90.0)] {
+                db.insert_samples_batch_inner(
+                    1000,
+                    &[("cpu.total_usage", "system", value, "%")],
+                    DB_BUDGET_BYTES,
+                    Some(segment),
+                )
+                .unwrap();
+            }
+        }
+        let db = HistoryDb::new(path).unwrap();
+        let view = db
+            .query_view_at("cpu.total_usage", "system", 998, 1002, 2000, 1002)
+            .unwrap();
+        assert_eq!(view.segments.len(), 3);
+        assert_eq!(view.input_points, 3);
+        assert!(view.segments.iter().all(|s| s.len() == 1));
+        assert_eq!(view.segments[0][0].value, 3.0);
+        assert!(view.segments[0][0].segment_id.is_none());
+        assert_eq!(view.segments[1][0].count, 1);
+        assert_eq!(view.segments[2][0].count, 1);
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn legacy_query_preserves_last_and_spike_within_its_point_limit() {
         let db = HistoryDb::new_in_memory().unwrap();

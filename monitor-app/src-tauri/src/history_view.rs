@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Point {
+    pub segment_id: Option<String>,
     pub t: i64,
     pub value: f64,
     pub min: f64,
@@ -21,6 +22,7 @@ pub struct HistoryView {
     pub downsampled: bool,
     pub omitted_segments: usize,
     pub aggregated: bool,
+    pub recorded_boundaries: bool,
     pub continuity: &'static str,
 }
 
@@ -30,7 +32,7 @@ fn segments(points: &[Point]) -> Vec<Vec<usize>> {
         let mut boundary = i == 0 || point.granularity_secs > 1;
         if i > 0 {
             let previous = &points[i - 1];
-            boundary |= previous.granularity_secs > 1;
+            boundary |= previous.granularity_secs > 1 || previous.segment_id != point.segment_id;
             if !boundary {
                 let mut adjacent = Vec::new();
                 for j in i.saturating_sub(2)..=(i + 2).min(points.len() - 1) {
@@ -130,6 +132,7 @@ pub fn project(points: Vec<Point>, budget: usize) -> HistoryView {
         downsampled: selected.len() < count,
         omitted_segments: omitted,
         aggregated,
+        recorded_boundaries: points.iter().any(|p| p.segment_id.is_some()),
         continuity: "inferred_raw_intervals;aggregate_points_disconnected",
     }
 }
@@ -140,6 +143,7 @@ pub fn legacy_points(points: Vec<(i64, f64)>, budget: usize) -> Vec<(i64, f64)> 
         points
             .into_iter()
             .map(|(t, value)| Point {
+                segment_id: None,
                 t,
                 value,
                 min: value,
@@ -164,6 +168,7 @@ mod tests {
     use super::*;
     fn point(t: i64, value: f64) -> Point {
         Point {
+            segment_id: None,
             t,
             value,
             min: value,
@@ -208,6 +213,22 @@ mod tests {
         assert!(flat.iter().any(|p| p.value == -5.0));
         assert_eq!(flat.last().unwrap().t, 4999);
     }
+    #[test]
+    fn recorded_boundary_cuts_even_regular_one_second_data_after_reduction() {
+        let points = (0..1000)
+            .map(|t| {
+                let mut p = point(t, 1.0);
+                p.segment_id = Some(if t < 500 { "before" } else { "after" }.into());
+                p
+            })
+            .collect();
+        let view = project(points, 20);
+        assert_eq!(view.segments.len(), 2);
+        assert_eq!(view.segments[0].last().unwrap().t, 499);
+        assert_eq!(view.segments[1][0].t, 500);
+        assert!(view.recorded_boundaries);
+    }
+
     #[test]
     fn stable_thirty_second_cadence_is_not_a_gap() {
         let view = project((0..100).map(|i| point(i * 30, 1.0)).collect(), 20);

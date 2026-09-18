@@ -1,3 +1,4 @@
+import { useLanguage } from "./language-hook";
 import { HistoryNotice } from "./HistoryNotice";
 import type { HistoryView } from "./history-view";
 import { temperatureSegments } from "./history-data";
@@ -17,7 +18,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 type Language = "zh" | "en";
 const LanguageContext = createContext<Language>("zh");
 const RuntimeContext = createContext<RuntimeInfo | null>(null);
-const translations: Record<string, string> = {"System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "enumerated processes (system-wide disk I/O)": "个已枚举进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏或系统托盘继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
+const translations: Record<string, string> = {"Reload": "重新读取", "Retry save": "重试保存","System Overview": "系统总览", "CPU Details": "处理器详情", "Memory Details": "内存详情", "GPU Details": "图形处理器详情", "Disk Details": "磁盘详情", "Process Ranking": "进程排行", "Settings": "设置", "No matching processes": "暂无匹配的进程", "General": "通用", "CPU": "处理器", "GPU": "图形处理器", "Memory": "内存", "Disks": "存储设备", "Name:": "名称", "Cores:": "核心数量", "Usage:": "使用率", "Total:": "总容量", "Used:": "已使用", "Utilization:": "利用率", "Memory:": "内存用量", "Physical Cores:": "物理核心", "Logical Processors:": "逻辑处理器", "Total Usage:": "总使用率", "Per-Core Usage": "逐核使用率", "Usage History (Last Hour)": "使用率历史 · 最近一小时", "System Memory": "系统内存", "Available:": "可用", "In Use:": "使用中", "Allocated:": "已分配", "Unified memory architecture - no separate VRAM": "统一内存架构，无独立显存；以下为驱动统计，不代表独立显存容量。", "Device:": "设备标识", "Capacity:": "容量", "SMART Status:": "SMART 摘要", "Temperature:": "温度", "Power On Hours:": "通电时间", "hours": "小时", "Throughput:": "合计吞吐", "Throughput History (Last Hour)": "吞吐历史 · 最近一小时", "Name": "进程名称", "Sort by Memory": "按内存排序", "Sort by CPU": "按 CPU 排序", "Sort by Read": "按读取排序", "Sort by Write": "按写入排序", "Showing": "显示", "of": "共", "enumerated processes (system-wide disk I/O)": "个已枚举进程（磁盘读写为系统范围）", "Failed to load processes": "进程加载失败", "Read/s": "读取/秒", "Write/s": "写入/秒", "Settings will be implemented in a future update.": "采样频率、历史保留与登录项设置尚未实现。", "Sampling": "采样", "Foreground interval (ms)": "前台采样间隔（毫秒）", "Background interval (ms)": "后台采样间隔（毫秒）", "Startup": "启动", "Launch at login": "登录时启动", "On": "开", "Off": "关", "Closing the window keeps monitoring in the menu bar; Quit stops collection.": "关闭窗口后在菜单栏或系统托盘继续采集；选择退出才停止。", "Settings saved": "设置已保存", "Failed to save settings": "设置保存失败", "Settings are available in the desktop app": "设置仅在桌面应用中可用", "Loading settings…": "正在加载设置…", "Storage Devices": "存储设备", "Usage": "占用率", "Temp": "温度", "Unreadable": "不可读", "matching": "个匹配", "Prev": "上一页", "Next": "下一页", "Page": "第", "page": "条/页", "Rows per page": "每页行数"};
 Object.assign(translations, {"Physical capacity": "总容量（物理盘）", "APFS capacity basis": "占用率口径：APFS 容器容量", "End process": "结束进程", "Select a process": "选择进程", "Cancel": "取消", "Confirm termination": "确认结束", "Requesting…": "正在请求…", "Unsaved work may be lost. Send SIGTERM without force or elevation?": "可能丢失未保存的内容。是否发送普通终止请求（SIGTERM），不强制、不提权？", "Termination requested; process may still be running.": "已发送终止请求；进程可能仍在运行，请查看刷新后的列表。", "This process is protected.": "此进程受保护，不能结束。", "Process already exited.": "进程已退出。", "Process identity changed. Select it again.": "进程身份已变化，请重新选择。", "Permission denied; only your own processes can be ended.": "权限不足；仅允许结束当前用户的进程。", "Failed to request termination.": "发送终止请求失败。", "Selection left the current list; select it again.": "所选进程已不在当前列表中，请重新选择。", "Failed to load settings": "设置加载失败", "Settings file was invalid; defaults restored. The original file was kept.": "设置文件无效；已恢复默认值，原文件已保留。", "Could not verify login item state; left unchanged.": "无法核实登录项状态，已保持原状。", "Login item changed but settings were not saved.": "登录项已更改，但设置未保存。", "Failed to load history": "历史加载失败", "No history yet": "暂无历史数据", "History range": "历史范围", "Throughput History": "吞吐历史"});
 Object.assign(translations, {
   "enumerated processes": "个已枚举进程",
@@ -67,9 +68,8 @@ export function diskUsagePercent(disk: PhysicalDisk): number | null {
 
 function App() {
   const [theme, setTheme] = useTheme();
-  const [language, setLanguage] = useState<Language>(() => localStorage.getItem("monitor-language") === "en" ? "en" : "zh");
+  const {language, change: setLanguage, busy: languageBusy, error: languageError, retry: retryLanguage} = useLanguage();
   const zh = language === "zh";
-  useEffect(() => { localStorage.setItem("monitor-language", language); document.documentElement.lang = zh ? "zh-CN" : "en"; }, [language, zh]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +136,8 @@ function App() {
         <div className="sidebar-footer"><span className="privacy-dot" />{zh ? "本地采集 · 隐私优先" : "Local & private"}<small>MONITOR / {runtime?.platform === "windows" ? "Windows" : runtime?.platform === "macos" ? "macOS" : "—"}</small></div>
       </nav>
       <main className="content">
-        <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><div className="topbar-controls"><label className="theme-control"><span>{zh ? "外观" : "Appearance"}</span><select aria-label={zh ? "外观模式" : "Appearance mode"} value={theme} onChange={e => setTheme(e.target.value as ThemePreference)}><option value="system">{zh ? "跟随系统" : "System"}</option><option value="light">{zh ? "浅色" : "Light"}</option><option value="dark">{zh ? "深色" : "Dark"}</option></select></label><select aria-label={zh ? "界面语言" : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></div></header>
+        <header className="topbar"><span>Monitor <span className="crumb">/ {pages.find(p => p[0] === currentPage)?.[zh ? 1 : 2]}</span></span><div className="topbar-controls"><label className="theme-control"><span>{zh ? "外观" : "Appearance"}</span><select aria-label={zh ? "外观模式" : "Appearance mode"} value={theme} onChange={e => setTheme(e.target.value as ThemePreference)}><option value="system">{zh ? "跟随系统" : "System"}</option><option value="light">{zh ? "浅色" : "Light"}</option><option value="dark">{zh ? "深色" : "Dark"}</option></select></label><select aria-label={zh ? "界面语言" : "Language"} value={language} disabled={languageBusy} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">简体中文</option><option value="en">English</option></select></div></header>
+        {languageError && <p role="alert" className="note">{zh ? "无法读取或保存语言设置，请检查设置文件后重试。" : "Language settings could not be read or saved. Check the settings file and retry."} <button disabled={languageBusy} onClick={retryLanguage}>{zh ? "重新读取" : "Reload"}</button></p>}
         <section className="page-heading"><div><div className="eyebrow">HARDWARE MONITOR</div><h2>{zh ? "洞悉设备的每一刻" : "Your hardware, at a glance"}</h2><p>{zh ? "专注关键指标，让系统状态清晰可见。" : "A clear view of the metrics that matter."}</p></div><span className="status-pill">{!isTauri() ? (zh ? "浏览器预览" : "Browser preview") : error ? (zh ? "采集异常" : "Collection error") : isStale ? (zh ? "数据可能过期" : "Data may be stale") : systemInfo ? (Object.values(systemInfo.source_states).some(state => state !== "ok") ? (zh ? "部分指标可用" : "Partial collection") : (zh ? "实时采集中" : "Collecting")) : (zh ? "等待采样" : "Waiting")}</span></section>
         {runtime && !runtime.primary_instance && <p className="note" role="alert">{zh ? "已有实例正在使用此数据目录。本窗口不会重复采集，请关闭此窗口并使用已有实例。" : "Another instance owns this data directory. Close this window and use the existing instance."}</p>}
         {isStale && !error && <div className="note" role="status">{zh ? `采集器已 ${snapshotAge} 秒未更新，显示的为最近成功读数。` : `Collector has not updated for ${snapshotAge}s; showing the last good reading.`}</div>}
@@ -900,29 +901,44 @@ function SettingsPage() {
   const savingRef = useRef(false);
   const pendingRef = useRef<AppSettings | null>(null);
 
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const reloadSettings = () => {
+    if (savingRef.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    pendingRef.current = null;
+    setLoadError(null);setDraft(null);setSaveState("idle");
+    setLoadAttempt(n => n + 1);
+  };
   useEffect(() => {
     if (!isTauri()) return;
+    let cancelled = false;
     invoke<SettingsPayload>("get_settings")
       .then((p) => {
+        if (cancelled) return;
         setSaved(p.settings);
         setDraft(p.settings);
         setLoadError(p.load_error);
       })
       .catch((e) => {
+        if (cancelled) return;
         // First-load failure must be visible, not an endless "Loading…" (A13).
         setLoadError(String(e));
         setSaved(null);
         setDraft(null);
       });
-  }, []);
+    return () => { cancelled = true; };
+  }, [loadAttempt]);
 
   const flushSave = async (next: AppSettings) => {
     if (savingRef.current) { pendingRef.current = next; return; }
     savingRef.current = true;
     setSaveState("saving");
     try {
-      await invoke("set_settings", { newSettings: next });
-      setSaved(next);
+      const saved = await invoke<AppSettings>("set_sampling_intervals", {
+        foregroundMs: next.foreground_interval_ms, backgroundMs: next.background_interval_ms,
+      });
+      setSaved(saved);
+      setLoadError(null);setErrorMsg("");
       setSaveState("saved");
     } catch (e) {
       setSaveState("error");
@@ -941,6 +957,7 @@ function SettingsPage() {
     if (!draft) return;
     const next = { ...draft, ...patch };
     setDraft(next);
+    setSaveState("idle");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => flushSave(next), 500);
   };
@@ -979,7 +996,7 @@ function SettingsPage() {
         <h2>{t("Settings")}</h2>
         <div className="card">
           {loadError
-            ? <p className="note" role="alert">{t("Failed to load settings")}: {loadError}</p>
+            ? <p className="note" role="alert">{t("Failed to load settings")}: {loadError} <button onClick={reloadSettings}>{t("Reload")}</button></p>
             : <p className="note">{t("Loading settings…")}</p>}
         </div>
       </div>
@@ -990,7 +1007,7 @@ function SettingsPage() {
   return (
     <div>
       <h2>{t("Settings")}</h2>
-      {loadError && <p className="note" role="alert">{t("Settings file was invalid; defaults restored. The original file was kept.")} ({loadError})</p>}
+      {loadError && <p className="note" role="alert">{t("Settings file was invalid; defaults restored. The original file was kept.")} ({loadError}) <button disabled={saveState === "saving"} onClick={reloadSettings}>{t("Reload")}</button></p>}
       <div className="card">
         <h3>{t("Sampling")}</h3>
         <div className="info">
@@ -1038,7 +1055,7 @@ function SettingsPage() {
 
       <div className="card"><button onClick={() => { setQuitError(false); void invoke("quit_app").catch(() => setQuitError(true)); }}>{t("Quit application")}</button>{quitError && <p role="alert">{t("Failed to quit")}</p>}</div>
       {saveState === "saved" && <p className="note">{t("Settings saved")}</p>}
-      {saveState === "error" && <p className="note" role="alert">{t("Failed to save settings")} {errorMsg}</p>}
+      {saveState === "error" && <p className="note" role="alert">{t("Failed to save settings")} {errorMsg} <button onClick={() => { if (saveTimer.current) clearTimeout(saveTimer.current); void flushSave(draft); }}>{t("Retry save")}</button></p>}
     </div>
   );
 }

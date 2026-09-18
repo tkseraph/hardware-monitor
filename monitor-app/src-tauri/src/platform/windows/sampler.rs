@@ -1,4 +1,4 @@
-//! Ordinary-user CPU/RAM. GPU and storage stay explicitly unimplemented.
+//! Ordinary-user CPU/RAM with guarded difference-counter intervals.
 use crate::model::{CpuInfo, MemoryInfo, SourceState};
 use std::time::{Duration, Instant};
 use sysinfo::{CpuRefreshKind, RefreshKind, System, MINIMUM_CPU_UPDATE_INTERVAL};
@@ -6,6 +6,7 @@ use sysinfo::{CpuRefreshKind, RefreshKind, System, MINIMUM_CPU_UPDATE_INTERVAL};
 pub struct Sampler {
     sys: System,
     last_cpu_refresh: Instant,
+    clock: super::sample_clock::SampleClock,
 }
 
 pub fn memory_reading(total: u64, available: u64) -> Option<MemoryInfo> {
@@ -25,15 +26,25 @@ impl Sampler {
     pub fn new() -> Self {
         let sys =
             System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+        let mut clock = super::sample_clock::SampleClock::default();
+        clock.observe(Duration::from_millis(
+            crate::sampler::effective_interval_ms(),
+        ));
         Self {
             sys,
+            clock,
             last_cpu_refresh: Instant::now(),
         }
     }
 
     pub fn cpu(&mut self) -> Result<CpuInfo, SourceState> {
         let elapsed = self.last_cpu_refresh.elapsed();
-        let warmed = elapsed >= MINIMUM_CPU_UPDATE_INTERVAL && elapsed < Duration::from_secs(120);
+        if elapsed < MINIMUM_CPU_UPDATE_INTERVAL {
+            return Err(SourceState::WarmingUp);
+        }
+        let warmed = self.clock.observe(Duration::from_millis(
+            crate::sampler::effective_interval_ms(),
+        ));
         self.sys.refresh_cpu_usage();
         self.last_cpu_refresh = Instant::now();
         let cores = self.sys.cpus();

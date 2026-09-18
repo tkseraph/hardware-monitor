@@ -2,20 +2,20 @@
   "kind": "local_debug_build_evidence_not_release",
   "baseline_commit": "8ebb440e47d069aa225308debb78744159f9b30b",
   "dirty": true,
-  "source_inputs_sha256": "820dbd093fefc4344707752788204056a5a7304934fb8e86c4b5fc0cfe4b6035",
+  "source_inputs_sha256": "8f494a19489965630ed98e790499f29fff982c4adb4defa1c24ace14e6d7996c",
   "artifact": "app.exe",
-  "artifact_sha256": "e7ef2e889774534708dabc058a7bc132a62bd9fd4d348ce81f2a8193389d9e55",
+  "artifact_sha256": "88ac9d69db72db697a63f355825016d357b9296b47a11ddbcd780bad141fe5b9",
   "target": "x86_64-pc-windows-msvc",
   "rust_toolchain": "1.98.1",
   "node": "24.19.0",
   "tests": {
     "rust_default": {
-      "passed": 84,
+      "passed": 76,
       "failed": 0,
       "ignored": 8
     },
     "node": {
-      "passed": 31,
+      "passed": 26,
       "failed": 0
     },
     "python_privacy": 8,
@@ -28,21 +28,13 @@
       "storage_throughput",
       "global_gpu_counters"
     ],
-    "windows_native_prior_stage": {
+    "windows_native_current_run": {
       "passed": 6,
       "failed": 0,
       "initial_parallel_test_failure": "test used one logical core for whole multi-threaded test process; corrected test denominator to actual logical cores"
-    },
-    "gpu_admission_native": {
-      "passed": 1,
-      "failed_final": 0,
-      "stable_followup_samples": 5,
-      "history_ids_unchanged": true,
-      "registry_count_unchanged": true,
-      "initial_attempt": "old four-attempt startup deadline failed; bounded twelve-attempt window passed"
     }
   },
-  "ui_evidence_artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc",
+  "ui_evidence_artifact_sha256": "aafc7692cd8f3f01cdfc755308bd5ba963d92f9463de6fe1846030959dda0717",
   "limitations": [
     "No installer or signing step",
     "Mac regression and remote CI not executed",
@@ -50,19 +42,13 @@
     "GPU Task Manager comparison, driver-reset and multi-hardware GPU tests pending",
     "Real hot-plug, USB and complex pool layouts not validated",
     "Full WebView child-process cleanup not verified",
+    "Raw continuity inferred from observed intervals; no exact persisted sampling-quality boundaries",
     "Same-second samples grouped with average/min/max/count; subsecond timestamps unrecoverable",
     "Coarse buckets disconnected; partial query boundaries may include whole intersecting buckets",
     "Synthetic extrema/gap cases covered by tests; native UI smoke covered live raw CPU/GPU/disk histories only",
-    "Recorded boundaries apply to source-level raw samples only; old records still inferred and aggregate buckets do not retain segment IDs",
-    "Exact power-event cause/time and all partial per-device failures not captured",
-    "First language-test launch disappeared before UI capture, cause undetermined; later restart and explicit-quit checks passed",
-    "Reopen tested with same build and session after hiding; concurrent cold-start race, cross-version notification and foreground focus arbitration not separately verified",
-    "Legacy language-cache migration remains automated-test-only; corruption/reload/save-retry now verified in native UI",
-    "Exclusive file-lock recovery covered by Windows production-path test; disk-full and directory ACL failure UI scenarios pending",
-    "One S0 manual-wake cycle verified; deeper residency, repeated sleep and recovery peak accuracy remain unverified",
-    "GPU connection churn during sleep/wake transition needs investigation",
-    "GPU topology admission validated by deterministic tests and awake native sampling only; another actual sleep cycle not executed",
-    "Prior sleep record remains tied to its original binary; root cause of every historical short GPU series not proven"
+    "Newest clock guard validated by deterministic clock tests and native collection tests; actual OS sleep/resume not executed",
+    "UI evidence belongs to preceding history-v2 artifact; native_history_v2 is retained historical evidence",
+    "Process-table dual-clock protection and exact persisted interruption boundaries pending"
   ],
   "source_inputs": [
     {
@@ -183,7 +169,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/history.rs",
-      "sha256": "886aece2d0a05e49c30619fcfce2a41839822da207cb54505c04efdaddd0cdb9"
+      "sha256": "a24e1d5b45cf724dce76cc2030f74eaeb9e1d8f11dec887b7e6d00d56db465c0"
     },
     {
       "path": "monitor-app/src-tauri/src/history_test.rs",
@@ -191,7 +177,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/history_view.rs",
-      "sha256": "586bdaddef08e02250adc4f6d6be64ca75ae2a7185fc0ebd85f1cd699c4f0bee"
+      "sha256": "d2241c842a2fd01ad6b63324394713857b45160ef2f0547baf36e993eaa5f02d"
     },
     {
       "path": "monitor-app/src-tauri/src/instance.rs",
@@ -199,7 +185,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/lib.rs",
-      "sha256": "661b4c5cbc61735c28e4b5981379a54a91e3510d571a5d48b2135bac0813a64e"
+      "sha256": "e7c39fbfe4c3f21c22909c2e088ff6341965a3efc0598ae5746ff090a8d38b0e"
     },
     {
       "path": "monitor-app/src-tauri/src/loginitem.rs",
@@ -243,11 +229,11 @@
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/gpu.rs",
-      "sha256": "31a69d3e6e769db0637295a298b6e52359c4140aa35e991fa0c2c9077075f085"
+      "sha256": "4193c94311c8c2f51212bbd1a8109640d51544306596491861b76d6b24a1c03c"
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/instance.rs",
-      "sha256": "f022cefd6dc92ffc982d970ea9d0f82cc5d814eb1ea60f5b520508829ca00e89"
+      "sha256": "d4efa5ce42c6abfe565367108ff8197635bfa56e8072731cf009ec8e8bb5173c"
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/mod.rs",
@@ -267,7 +253,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/scheduler.rs",
-      "sha256": "f92e3152ddb038b1fbd00d0d4a38fcaa05b6dd3046fbe612b924530a341d6dfa"
+      "sha256": "9cd43de3c431f7d36308fe5c793b4ffa8de25480ce60f5384dc71771c09737f4"
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/storage.rs",
@@ -283,7 +269,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/processes.rs",
-      "sha256": "b3a16259d699a1b99b85dfa8481bd91a26561a19c544051990ec96e7961c42dd"
+      "sha256": "e00ee226fc92a2015f73295e27d7fbda3083d548199854d3392c790dc3be842c"
     },
     {
       "path": "monitor-app/src-tauri/src/query.rs",
@@ -299,11 +285,11 @@
     },
     {
       "path": "monitor-app/src-tauri/src/settings.rs",
-      "sha256": "6d261d0fa151713fc8b445a27f48764d939e5e9c78393b9fb2fceaa914b4c57d"
+      "sha256": "a8945794bc5e00a902cb0ef8e60ae34c98589c5d263e692cb21abd7d6b20134d"
     },
     {
       "path": "monitor-app/src-tauri/src/source_runtime.rs",
-      "sha256": "d06b7e4ecfb887a91df1e802e12c6aac6fdf6ec7984e7e2e92cffd13cf282aab"
+      "sha256": "72ef76b4360e862d48e62264763cbd6c2cdc31863a84da3d90b678d4f1eac3f9"
     },
     {
       "path": "monitor-app/src-tauri/src/storage.rs",
@@ -327,11 +313,11 @@
     },
     {
       "path": "monitor-app/src/App.tsx",
-      "sha256": "429f721a57beb94a235017b65262980a00f3f3c01c504667e0388c48558356e4"
+      "sha256": "37002c5070c372e73df8b1dcabead3115b661f1fc837e6340962a6b6e75d1795"
     },
     {
       "path": "monitor-app/src/HistoryNotice.tsx",
-      "sha256": "24e2128d865f7a464d67da10fc54fb7f0ac9d0dd07c73719f1e8fb88c0601444"
+      "sha256": "e3b324053a3be3851c6e70ee358bbc90dd787b19d870dbdcb7a4d550523cb45e"
     },
     {
       "path": "monitor-app/src/TemperatureTrend.tsx",
@@ -359,15 +345,7 @@
     },
     {
       "path": "monitor-app/src/history-view.ts",
-      "sha256": "bdb46367a7deaf8f2a8463951f4dad2244d7221bc5bb5eb8e68a6c0b6f9e85db"
-    },
-    {
-      "path": "monitor-app/src/language-hook.ts",
-      "sha256": "1dafe196de8f2267fb494e707ce994b728aaefd28724c0b6028324d4a6230a0e"
-    },
-    {
-      "path": "monitor-app/src/language.ts",
-      "sha256": "bf35c312331aff3b3e6c85834c432a6ed5129b8b1f39d9c0ff07e375f720d599"
+      "sha256": "03da9ea8ac57c8f0ff8435d79c5c076c0da71d2573e3147e22b53e54a5110171"
     },
     {
       "path": "monitor-app/src/main.tsx",
@@ -426,10 +404,6 @@
       "sha256": "71e5bd90636579ff06f88c5a0d8e49464be54b572676c586fa788cf3da530672"
     },
     {
-      "path": "monitor-app/tests/language.test.mjs",
-      "sha256": "d030fa3d3e72e61c9e7d75f2d88c4bb50263ae15f6234c560f8a826cb4c42542"
-    },
-    {
       "path": "monitor-app/tests/source-state.test.mjs",
       "sha256": "53d82ebdfa76cd17ceccb22c8a437d67a953277b66a14b743e67c27d9eed17db"
     },
@@ -467,7 +441,7 @@
     }
   ],
   "authenticode_status": "NotSigned",
-  "stage": "W4-GPU-topology-admission",
+  "stage": "W5a-difference-counter-clock-guard-partial",
   "native_w3": {
     "disk_count": 2,
     "volume_count": 4,
@@ -493,7 +467,7 @@
     "events_consumed": 0,
     "privilege_changed": false
   },
-  "verified_at": "2026-09-18T08:23:58.190920+00:00",
+  "verified_at": "2026-09-16T06:18:40.483775+00:00",
   "checks": {
     "rustfmt": true,
     "strict_clippy": true,
@@ -532,212 +506,6 @@
           129
         ]
       ]
-    },
-    "artifact_sha256": "aafc7692cd8f3f01cdfc755308bd5ba963d92f9463de6fe1846030959dda0717"
-  },
-  "native_segments": {
-    "old_segments_unchanged": true,
-    "old_segment_count": 4,
-    "new_segment_count": 4,
-    "null_segment_rows": 0,
-    "integrity": "ok",
-    "memory_history_restart_gap_visible": true,
-    "notice_visible": true,
-    "main_process_exit_confirmed": true,
-    "schema_version": 2,
-    "artifact_sha256": "c288c0a4bdc20766b6779c611bd3cc10e68a1591beec506d50c1da0a4cd8ad39"
-  },
-  "native_language": {
-    "initial_saved_language": "en",
-    "changed_language": "zh",
-    "interval_preserved_on_language_save_ms": 1500,
-    "new_sampling_interval_ms": 1600,
-    "language_preserved_on_sampling_save": true,
-    "restart_language_and_interval_restored": true,
-    "explicit_quit_main_process_exited": true,
-    "database_integrity": "ok",
-    "artifact_sha256": "ac39a24eafd471431457adaf5cd669811013bb41edc3389813c918442181883e"
-  },
-  "native_reopen": {
-    "close_hides_window": true,
-    "same_window_restored": true,
-    "primary_pid_unchanged": true,
-    "secondary_exit_code": 0,
-    "one_main_process_remaining": true,
-    "main_exit_confirmed": true,
-    "integrity": "ok",
-    "metric_segment_counts": {
-      "cpu.per_core": 1,
-      "cpu.total_usage": 1,
-      "disk.throughput": 1,
-      "gpu.utilization": 1,
-      "memory.used_percent": 1
-    },
-    "artifact_sha256": "68d7c1e7139b46db65c2389b74dbb8e44a7f4978c9bf9dbdac88e05e13154b23"
-  },
-  "native_settings_recovery": {
-    "synthetic_corrupt_file_preserved": true,
-    "reload_restored_language_and_intervals": true,
-    "failed_save_retained_draft": true,
-    "retry_saved_foreground_ms": 1800,
-    "background_ms_preserved": 4000,
-    "language_preserved": "en",
-    "main_exit_confirmed": true,
-    "unicode_and_space_data_path": true,
-    "artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc"
-  },
-  "sleep_wake": {
-    "date": "2026-09-18",
-    "mode": "S0 low power idle",
-    "wake_method": "physical power button",
-    "suspend_api_success": true,
-    "call_duration_seconds": 116.1252121925354,
-    "primary_survived": true,
-    "memory_gap_visible": true,
-    "main_exit_confirmed": true,
-    "wake_timer_policy_unchanged": true,
-    "integrity": "ok",
-    "analysis_at_first_post_resume_check": {
-      "cpu.total_usage": [
-        {
-          "points": 128,
-          "segments": 2,
-          "gaps": [
-            {
-              "seconds": 108,
-              "before": 1789695047,
-              "after": 1789695155,
-              "different_segment": true
-            }
-          ],
-          "points_during_call": 9,
-          "after_count": 56,
-          "after_min": 8.036238670349121,
-          "after_max": 83.8957290649414
-        }
-      ],
-      "disk.throughput": [
-        {
-          "points": 124,
-          "segments": 3,
-          "gaps": [
-            {
-              "seconds": 109,
-              "before": 1789695045,
-              "after": 1789695154,
-              "different_segment": true
-            }
-          ],
-          "points_during_call": 8,
-          "after_count": 54,
-          "after_min": 0.0,
-          "after_max": 564.7373138126666
-        },
-        {
-          "points": 124,
-          "segments": 3,
-          "gaps": [
-            {
-              "seconds": 109,
-              "before": 1789695045,
-              "after": 1789695154,
-              "different_segment": true
-            }
-          ],
-          "points_during_call": 8,
-          "after_count": 54,
-          "after_min": 0.0,
-          "after_max": 4.676917767380633
-        }
-      ],
-      "gpu.utilization": [
-        {
-          "points": 2,
-          "segments": 1,
-          "gaps": [],
-          "points_during_call": 2,
-          "after_count": 0,
-          "after_min": null,
-          "after_max": null
-        },
-        {
-          "points": 2,
-          "segments": 1,
-          "gaps": [],
-          "points_during_call": 0,
-          "after_count": 2,
-          "after_min": 1.6626707315444946,
-          "after_max": 2.237811803817749
-        },
-        {
-          "points": 1,
-          "segments": 1,
-          "gaps": [],
-          "points_during_call": 0,
-          "after_count": 1,
-          "after_min": 1.4289482831954956,
-          "after_max": 1.4289482831954956
-        },
-        {
-          "points": 47,
-          "segments": 1,
-          "gaps": [],
-          "points_during_call": 0,
-          "after_count": 47,
-          "after_min": 1.9093339443206787,
-          "after_max": 3.813596248626709
-        },
-        {
-          "points": 5,
-          "segments": 2,
-          "gaps": [
-            {
-              "seconds": 108,
-              "before": 1789695047,
-              "after": 1789695155,
-              "different_segment": true
-            }
-          ],
-          "points_during_call": 4,
-          "after_count": 1,
-          "after_min": 10.55996036529541,
-          "after_max": 10.55996036529541
-        },
-        {
-          "points": 64,
-          "segments": 1,
-          "gaps": [],
-          "points_during_call": 1,
-          "after_count": 0,
-          "after_min": null,
-          "after_max": null
-        }
-      ],
-      "memory.used_percent": [
-        {
-          "points": 130,
-          "segments": 2,
-          "gaps": [
-            {
-              "seconds": 107,
-              "before": 1789695047,
-              "after": 1789695154,
-              "different_segment": true
-            }
-          ],
-          "points_during_call": 10,
-          "after_count": 56,
-          "after_min": 45.37269592285156,
-          "after_max": 46.76186752319336
-        }
-      ]
-    },
-    "limitations": [
-      "Call duration is not independently measured deep-sleep residency",
-      "No independent reference counters for recovery peaks",
-      "Multiple GPU connection histories appeared during transition; final observed connection continued sampling",
-      "One manual wake cycle only; no repeated cycling, battery, hibernate or long sleep coverage"
-    ],
-    "artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc"
+    }
   }
 }

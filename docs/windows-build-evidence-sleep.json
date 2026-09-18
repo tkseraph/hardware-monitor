@@ -2,15 +2,15 @@
   "kind": "local_debug_build_evidence_not_release",
   "baseline_commit": "8ebb440e47d069aa225308debb78744159f9b30b",
   "dirty": true,
-  "source_inputs_sha256": "820dbd093fefc4344707752788204056a5a7304934fb8e86c4b5fc0cfe4b6035",
+  "source_inputs_sha256": "c9b29d81915bb66abb5ea9cfdcf61a42197fa9e98c966431b35365627853633f",
   "artifact": "app.exe",
-  "artifact_sha256": "e7ef2e889774534708dabc058a7bc132a62bd9fd4d348ce81f2a8193389d9e55",
+  "artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc",
   "target": "x86_64-pc-windows-msvc",
   "rust_toolchain": "1.98.1",
   "node": "24.19.0",
   "tests": {
     "rust_default": {
-      "passed": 84,
+      "passed": 82,
       "failed": 0,
       "ignored": 8
     },
@@ -32,14 +32,6 @@
       "passed": 6,
       "failed": 0,
       "initial_parallel_test_failure": "test used one logical core for whole multi-threaded test process; corrected test denominator to actual logical cores"
-    },
-    "gpu_admission_native": {
-      "passed": 1,
-      "failed_final": 0,
-      "stable_followup_samples": 5,
-      "history_ids_unchanged": true,
-      "registry_count_unchanged": true,
-      "initial_attempt": "old four-attempt startup deadline failed; bounded twelve-attempt window passed"
     }
   },
   "ui_evidence_artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc",
@@ -60,9 +52,7 @@
     "Legacy language-cache migration remains automated-test-only; corruption/reload/save-retry now verified in native UI",
     "Exclusive file-lock recovery covered by Windows production-path test; disk-full and directory ACL failure UI scenarios pending",
     "One S0 manual-wake cycle verified; deeper residency, repeated sleep and recovery peak accuracy remain unverified",
-    "GPU connection churn during sleep/wake transition needs investigation",
-    "GPU topology admission validated by deterministic tests and awake native sampling only; another actual sleep cycle not executed",
-    "Prior sleep record remains tied to its original binary; root cause of every historical short GPU series not proven"
+    "GPU connection churn during sleep/wake transition needs investigation"
   ],
   "source_inputs": [
     {
@@ -243,7 +233,7 @@
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/gpu.rs",
-      "sha256": "31a69d3e6e769db0637295a298b6e52359c4140aa35e991fa0c2c9077075f085"
+      "sha256": "4193c94311c8c2f51212bbd1a8109640d51544306596491861b76d6b24a1c03c"
     },
     {
       "path": "monitor-app/src-tauri/src/platform/windows/instance.rs",
@@ -467,7 +457,7 @@
     }
   ],
   "authenticode_status": "NotSigned",
-  "stage": "W4-GPU-topology-admission",
+  "stage": "W5b-settings-recovery",
   "native_w3": {
     "disk_count": 2,
     "volume_count": 4,
@@ -493,7 +483,7 @@
     "events_consumed": 0,
     "privilege_changed": false
   },
-  "verified_at": "2026-09-18T08:23:58.190920+00:00",
+  "verified_at": "2026-09-18T01:36:09.270162+00:00",
   "checks": {
     "rustfmt": true,
     "strict_clippy": true,
@@ -583,8 +573,7 @@
     "background_ms_preserved": 4000,
     "language_preserved": "en",
     "main_exit_confirmed": true,
-    "unicode_and_space_data_path": true,
-    "artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc"
+    "unicode_and_space_data_path": true
   },
   "sleep_wake": {
     "date": "2026-09-18",
@@ -737,7 +726,6 @@
       "No independent reference counters for recovery peaks",
       "Multiple GPU connection histories appeared during transition; final observed connection continued sampling",
       "One manual wake cycle only; no repeated cycling, battery, hibernate or long sleep coverage"
-    ],
-    "artifact_sha256": "071fc003f6b78a44e08c378214b58f987cbdb8462243f8726ed7660fe5a58bfc"
+    ]
   }
 }

@@ -118,12 +118,18 @@ mod tests {
     #[test]
     #[ignore = "opt-in read-only current-process native metrics; no process termination"]
     fn live_current_process_metrics() {
+        // Other native tests can consume several cores in this same test process.
+        let system = sysinfo::System::new_with_specifics(
+            sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()),
+        );
+        let logical_cores = system.cpus().len();
+        assert!(logical_cores > 0);
         let first = read_process(std::process::id()).expect("current process is readable");
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL + Duration::from_millis(50));
         let second = read_process(std::process::id()).unwrap();
         assert_eq!(first.creation_marker, second.creation_marker);
         assert!(second.working_set_bytes.unwrap() > 0);
-        assert!(cpu_percent(Some(&first), &second, 1).is_some());
+        assert!(cpu_percent(Some(&first), &second, logical_cores).is_some());
     }
 
     #[test]

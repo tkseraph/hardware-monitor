@@ -102,10 +102,33 @@ pub struct HistoryRow {
 }
 #[derive(Debug)]
 pub struct HistoryBatch {
+    pub source: SourceId,
+    pub sequence: u64,
+    pub boundary: bool,
     pub observed_at: i64,
     pub rows: Vec<HistoryRow>,
 }
 pub type HistoryWriter = Box<dyn FnMut(HistoryBatch) -> Result<(), ()> + Send>;
+
+#[derive(Default)]
+pub struct HistoryContinuity {
+    saved: BTreeMap<SourceId, (u64, String)>,
+}
+impl HistoryContinuity {
+    pub fn segment(&self, batch: &HistoryBatch) -> String {
+        match self.saved.get(&batch.source) {
+            Some((sequence, segment))
+                if !batch.boundary && sequence.checked_add(1) == Some(batch.sequence) =>
+            {
+                segment.clone()
+            }
+            _ => uuid::Uuid::new_v4().to_string(),
+        }
+    }
+    pub fn saved(&mut self, batch: &HistoryBatch, segment: String) {
+        self.saved.insert(batch.source, (batch.sequence, segment));
+    }
+}
 
 fn history_batch(value: &SourceValue, observed_at: i64) -> HistoryBatch {
     let mut rows = Vec::new();
@@ -164,7 +187,13 @@ fn history_batch(value: &SourceValue, observed_at: i64) -> HistoryBatch {
             }
         }
     }
-    HistoryBatch { observed_at, rows }
+    HistoryBatch {
+        source: value.id(),
+        sequence: 0,
+        boundary: true,
+        observed_at,
+        rows,
+    }
 }
 
 struct Entry {
@@ -389,11 +418,14 @@ impl SourceRuntime {
                             return;
                         }
                     };
+                    let mut sequence = 0u64;
+                    let mut clock = crate::platform::windows::sample_clock::SampleClock::default();
                     loop {
                         let (stopped, requested, generation) = source_signal.current();
                         if stopped {
                             break;
                         }
+                        sequence += 1;
                         let start = Instant::now();
                         let outcome = catch_unwind(AssertUnwindSafe(&mut collector));
                         if source_signal.current().0 {
@@ -407,6 +439,7 @@ impl SourceRuntime {
                                 Err(SourceState::Error)
                             }
                         });
+                        let boundary = !clock.observe(requested.max(spec.minimum_interval));
                         let timestamp = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .map(|v| v.as_secs() as i64);
@@ -416,7 +449,12 @@ impl SourceRuntime {
                             Err(SourceState::Error)
                         };
                         let observed = timestamp.unwrap_or(0);
-                        let batch = reading.as_ref().ok().map(|v| history_batch(v, observed));
+                        let batch = reading.as_ref().ok().map(|v| {
+                            let mut batch = history_batch(v, observed);
+                            batch.sequence = sequence;
+                            batch.boundary = boundary;
+                            batch
+                        });
                         source_cache.lock().unwrap().update(
                             spec.id,
                             reading,
@@ -495,6 +533,27 @@ impl Drop for SourceRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn history_segments_require_adjacent_successful_writes() {
+        let mut state = HistoryContinuity::default();
+        let mut batch = history_batch(&cpu(1.0), 1000);
+        batch.sequence = 1;
+        let first = state.segment(&batch);
+        state.saved(&batch, first.clone());
+        batch.sequence = 2;
+        batch.boundary = false;
+        assert_eq!(state.segment(&batch), first);
+        // No acknowledgement for failed write / dropped attempt 2.
+        batch.sequence = 3;
+        let after_loss = state.segment(&batch);
+        assert_ne!(after_loss, first);
+        state.saved(&batch, after_loss.clone());
+        batch.sequence = 4;
+        batch.boundary = true;
+        assert_ne!(state.segment(&batch), after_loss);
+        assert_ne!(HistoryContinuity::default().segment(&batch), after_loss);
+    }
+
     fn cpu(value: f32) -> SourceValue {
         SourceValue::Cpu(CpuInfo {
             name: "synthetic".into(),

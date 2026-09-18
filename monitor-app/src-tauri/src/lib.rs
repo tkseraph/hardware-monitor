@@ -215,9 +215,10 @@ struct SettingsPayload {
 
 #[tauri::command]
 async fn get_settings() -> Result<SettingsPayload, String> {
+    let outcome = settings::read()?;
     Ok(SettingsPayload {
-        settings: settings::get(),
-        load_error: settings::last_error(),
+        settings: outcome.settings,
+        load_error: outcome.error,
     })
 }
 
@@ -226,6 +227,32 @@ async fn set_settings(new_settings: settings::Settings) -> Result<(), String> {
     settings::set(new_settings)?;
     sampler::configuration_changed();
     Ok(())
+}
+
+#[tauri::command]
+async fn set_sampling_intervals(
+    foreground_ms: u64,
+    background_ms: u64,
+) -> Result<settings::Settings, String> {
+    let result = settings::update(|s| {
+        s.foreground_interval_ms = foreground_ms;
+        s.background_interval_ms = background_ms;
+    })?;
+    sampler::configuration_changed();
+    Ok(result)
+}
+
+#[tauri::command]
+async fn set_language(language: String, migrate_only: bool) -> Result<String, String> {
+    if !["zh", "en"].contains(&language.as_str()) {
+        return Err("unsupported language".into());
+    }
+    let result = settings::update(|s| {
+        if !migrate_only || s.language == "system" {
+            s.language = language;
+        }
+    })?;
+    Ok(result.language)
 }
 
 /// Opt-in login item toggle. R9/A12: register and verify are separate steps.
@@ -261,9 +288,7 @@ async fn set_launch_at_login(
         match loginitem::is_registered(&app_path) {
             Ok(registered) => {
                 // Persist the verified state so the UI reflects reality.
-                let mut s = settings::get();
-                s.launch_at_login = registered;
-                if let Err(e) = settings::set(s) {
+                if let Err(e) = settings::update(|s| s.launch_at_login = registered) {
                     return Ok(LoginItemResult {
                         registered: Some(registered),
                         saved: false,
@@ -366,6 +391,12 @@ pub fn run() {
             runtime_info::set_primary(is_primary);
             #[cfg(target_os = "windows")]
             if !is_primary {
+                if let Some(paths) = &paths {
+                    if instance::request_reopen(&paths.lock_path()).is_ok() {
+                        app.handle().exit(0);
+                        return Ok(());
+                    }
+                }
                 use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION};
                 let message: Vec<u16> = "此数据目录已有 Hardware Monitor 实例，请使用已有窗口。\0".encode_utf16().collect();
                 let title: Vec<u16> = "Hardware Monitor\0".encode_utf16().collect();
@@ -373,6 +404,9 @@ pub fn run() {
                 app.handle().exit(0);
                 return Ok(());
             }
+
+            #[cfg(target_os = "windows")]
+            let reopen_event = instance::ReopenEvent::create(&paths.as_ref().ok_or("Windows data directory unavailable")?.lock_path())?;
 
             // Initialize history DB + settings from the shared DataPaths. A DB
             // failure degrades to "realtime ok, history unavailable" (R2/A05): the
@@ -403,6 +437,21 @@ pub fn run() {
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                     .data_directory(root.join("webview"))
                     .build()?;
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        match reopen_event.requested() {
+                            Ok(true) => restore_main_window(&handle),
+                            Ok(false) => {},
+                            Err(error) => { log::error!("window notification failed: {error}"); break; }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    }
+                });
             }
 
             // Create menu bar tray icon
@@ -504,6 +553,8 @@ pub fn run() {
             get_history_v2,
             get_settings,
             set_settings,
+            set_sampling_intervals,
+            set_language,
             set_launch_at_login,
         ])
         .build(tauri::generate_context!())

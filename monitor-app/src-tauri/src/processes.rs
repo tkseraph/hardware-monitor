@@ -69,6 +69,8 @@ pub struct ProcessCollector {
     last_scan: Option<Instant>,
     #[cfg(target_os = "windows")]
     windows_baselines: HashMap<u32, crate::platform::windows::processes::Reading>,
+    #[cfg(target_os = "windows")]
+    windows_clock: crate::platform::windows::sample_clock::SampleClock,
 }
 
 impl ProcessCollector {
@@ -82,6 +84,8 @@ impl ProcessCollector {
             last_scan: None,
             #[cfg(target_os = "windows")]
             windows_baselines: HashMap::new(),
+            #[cfg(target_os = "windows")]
+            windows_clock: Default::default(),
         }
     }
 
@@ -120,6 +124,13 @@ impl ProcessCollector {
             now.duration_since(previous) >= sysinfo::MINIMUM_CPU_UPDATE_INTERVAL
                 && now.duration_since(previous).as_secs() < 120
         });
+        #[cfg(target_os = "windows")]
+        if !self
+            .windows_clock
+            .observe(std::time::Duration::from_secs(2))
+        {
+            self.windows_baselines.clear();
+        }
         for (pid, process) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
             #[cfg(target_os = "macos")]

@@ -37,3 +37,6 @@ python -X utf8 scripts/probes/windows_readonly.py --samples 3
 当前稳定身份关联仅用于代码明确分类的固定介质，实际验证只覆盖上述 NVMe。SATA/ATA、USB、真实热插拔、同型号多盘与 Storage Spaces 仍不能标为实机通过。虚拟或未知设备不会冒称已确认的物理盘；未确认身份时不使用盘号作为历史后备键。跨盘卷已有结构/合成测试，不代表复杂池底层物理拓扑已全部展开。
 
 新增 Windows 依赖为 wmi 0.18.4（关闭默认 chrono 功能，MIT OR Apache-2.0）和 uuid 1.26.1（v4，用于本机生成随机系列 ID）；仅调用只读 WMI 查询和必要 Win32 读取接口。WMI 的 windows/windows-core 需保持同一兼容系列；本项目锁文件对齐 windows 0.61.3 / windows-core 0.61.2，未升级 Tauri 或安装服务/驱动。
+
+
+2026-09-18：Windows 同一数据目录重复启动已支持通知现有实例恢复窗口；本机已验证关闭到托盘后再次启动，原窗口恢复、第二进程退出且没有新增采集段。不同目录通过文件锁和独立通知保持隔离。并发冷启动、跨版本和跨会话尚未单独实测。

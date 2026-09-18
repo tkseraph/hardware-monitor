@@ -147,7 +147,7 @@ pub struct DiskPerformance {
     query: Option<Query>,
     bindings: Bindings,
     previous: BTreeMap<u32, Option<String>>,
-    last_poll: Option<std::time::Instant>,
+    clock: super::sample_clock::SampleClock,
 }
 impl DiskPerformance {
     pub fn new(bindings: Bindings) -> Self {
@@ -155,7 +155,7 @@ impl DiskPerformance {
             query: None,
             bindings,
             previous: BTreeMap::new(),
-            last_poll: None,
+            clock: super::sample_clock::SampleClock::default(),
         }
     }
     pub fn collect(&mut self) -> Result<WindowsThroughput, SourceState> {
@@ -165,10 +165,9 @@ impl DiskPerformance {
             .unwrap()
             .clone()
             .ok_or(SourceState::WarmingUp)?;
-        let gap_limit = (std::time::Duration::from_millis(crate::sampler::effective_interval_ms())
-            * 3)
-        .max(std::time::Duration::from_secs(15));
-        if self.last_poll.is_some_and(|at| at.elapsed() > gap_limit) {
+        if !self.clock.observe(std::time::Duration::from_millis(
+            crate::sampler::effective_interval_ms(),
+        )) {
             self.query = None;
             self.previous.clear();
         }
@@ -180,7 +179,6 @@ impl DiskPerformance {
         if self.query.is_none() {
             self.query = Some(Query::new()?);
         }
-        self.last_poll = Some(std::time::Instant::now());
         let (read, write) = self.query.as_ref().unwrap().sample()?;
         let mut all = read.keys().chain(write.keys()).copied().collect::<Vec<_>>();
         all.sort_unstable();

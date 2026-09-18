@@ -109,17 +109,22 @@ pub async fn run_scheduler(data_root: Option<std::path::PathBuf>) {
             }),
         });
     }
+    let mut continuity = crate::source_runtime::HistoryContinuity::default();
     match SourceRuntime::start(
         specs,
         Duration::from_millis(effective_interval_ms()),
         16,
-        Box::new(|batch| {
+        Box::new(move |batch| {
             let rows: Vec<_> = batch
                 .rows
                 .iter()
                 .map(|row| (row.metric, row.object.as_str(), row.value, row.unit))
                 .collect();
-            crate::history::record_snapshot_batch(batch.observed_at, &rows).map_err(|_| ())
+            let segment = continuity.segment(&batch);
+            crate::history::record_segment_batch(batch.observed_at, &rows, Some(&segment))
+                .map_err(|_| ())?;
+            continuity.saved(&batch, segment);
+            Ok(())
         }),
     ) {
         Ok(runtime) => *active = Some(runtime),

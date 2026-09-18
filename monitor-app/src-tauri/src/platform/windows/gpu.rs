@@ -102,6 +102,29 @@ struct Adapter {
     name: String,
     capacity_hint: u64,
 }
+// Admit a new topology only after consecutive valid observations over a stable window.
+// This never reconnects identities across an invalidated factory.
+struct TopologyAdmission {
+    since: Instant,
+    valid_observations: u32,
+}
+impl TopologyAdmission {
+    fn new(now: Instant) -> Self {
+        Self {
+            since: now,
+            valid_observations: 0,
+        }
+    }
+    fn reset(&mut self, now: Instant) {
+        *self = Self::new(now);
+    }
+    fn observe(&mut self, now: Instant) -> bool {
+        self.valid_observations = self.valid_observations.saturating_add(1);
+        self.valid_observations >= 3
+            && now.saturating_duration_since(self.since) >= Duration::from_secs(3)
+    }
+}
+
 pub struct GpuCollector {
     root: PathBuf,
     registry: Option<Registry>,
@@ -110,7 +133,8 @@ pub struct GpuCollector {
     query: Option<Query>,
     discovered: Option<Instant>,
     previous: BTreeMap<u32, Key>,
-    last_poll: Option<Instant>,
+    clock: super::sample_clock::SampleClock,
+    admission: TopologyAdmission,
 }
 impl GpuCollector {
     pub fn new(root: PathBuf) -> Self {
@@ -122,7 +146,8 @@ impl GpuCollector {
             query: None,
             discovered: None,
             previous: BTreeMap::new(),
-            last_poll: None,
+            clock: super::sample_clock::SampleClock::default(),
+            admission: TopologyAdmission::new(Instant::now()),
         }
     }
     fn discover(&mut self) -> Result<(), SourceState> {
@@ -155,6 +180,14 @@ impl GpuCollector {
                 capacity_hint: desc.DedicatedVideoMemory.max(desc.SharedSystemMemory) as u64,
             });
         }
+        let previous_topology: Vec<_> = self.adapters.iter().map(|a| (a.ordinal, a.key)).collect();
+        let next_topology: Vec<_> = adapters.iter().map(|a| (a.ordinal, a.key)).collect();
+        if previous_topology != next_topology {
+            self.previous.clear();
+            self.query = None;
+            self.admission.reset(Instant::now());
+            log::debug!("GPU topology changed; waiting for stable samples");
+        }
         self.factory = Some(factory);
         self.adapters = adapters;
         self.discovered = Some(Instant::now());
@@ -166,6 +199,8 @@ impl GpuCollector {
             .as_ref()
             .is_none_or(|f| !unsafe { f.IsCurrent() }.as_bool());
         if changed {
+            self.admission.reset(Instant::now());
+            log::debug!("GPU factory invalidated; waiting for stable samples");
             self.previous.clear();
             self.query = None;
         }
@@ -176,24 +211,34 @@ impl GpuCollector {
         {
             self.discover()?;
         }
-        let limit = (Duration::from_millis(crate::sampler::effective_interval_ms()) * 3)
-            .max(Duration::from_secs(15));
-        if self.last_poll.is_some_and(|t| t.elapsed() > limit) {
+        if !self.clock.observe(Duration::from_millis(
+            crate::sampler::effective_interval_ms(),
+        )) {
             self.query = None;
         }
         if self.query.is_none() {
             self.query = Some(Query::new()?);
-            self.last_poll = Some(Instant::now());
             return Err(SourceState::WarmingUp);
         }
         let query = self.query.as_ref().unwrap();
-        self.last_poll = Some(Instant::now());
         if unsafe { PdhCollectQueryData(query.handle) } != 0 {
+            self.admission.reset(Instant::now());
             return Err(SourceState::Error);
         }
-        let engines = counter_values(query.counters[0])?;
-        let dedicated = counter_values(query.counters[1])?;
-        let shared = counter_values(query.counters[2])?;
+        let readings = (|| {
+            Ok::<_, SourceState>((
+                counter_values(query.counters[0])?,
+                counter_values(query.counters[1])?,
+                counter_values(query.counters[2])?,
+            ))
+        })();
+        let (engines, dedicated, shared) = match readings {
+            Ok(values) => values,
+            Err(error) => {
+                self.admission.reset(Instant::now());
+                return Err(error);
+            }
+        };
         let mut matched = Vec::new();
         let mut inputs = Vec::new();
         for adapter in &self.adapters {
@@ -234,7 +279,11 @@ impl GpuCollector {
             println!("other_active_engine_instances={outside_active}");
         }
         if matched.is_empty() {
+            self.admission.reset(Instant::now());
             return Err(SourceState::Unverified);
+        }
+        if !self.admission.observe(Instant::now()) {
+            return Err(SourceState::WarmingUp);
         }
         if self.registry.is_none() {
             self.registry = Some(Registry::open_gpu(&self.root).map_err(|_| SourceState::Error)?);
@@ -273,6 +322,38 @@ impl GpuCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn admission_rejects_repeated_short_topologies_then_allows_stable_samples() {
+        let start = Instant::now();
+        let mut gate = TopologyAdmission::new(start);
+        for cycle in 0..8 {
+            let now = start + Duration::from_secs(cycle * 3);
+            gate.reset(now);
+            assert!(!gate.observe(now + Duration::from_secs(1)));
+            assert!(!gate.observe(now + Duration::from_secs(2)));
+        }
+        let stable = start + Duration::from_secs(30);
+        gate.reset(stable);
+        assert!(!gate.observe(stable + Duration::from_secs(1)));
+        assert!(!gate.observe(stable + Duration::from_secs(2)));
+        assert!(gate.observe(stable + Duration::from_secs(3)));
+        assert!(gate.observe(stable + Duration::from_secs(4)));
+    }
+    #[test]
+    fn admission_requires_both_time_and_valid_observations() {
+        let now = Instant::now();
+        let mut gate = TopologyAdmission::new(now);
+        for _ in 0..6 {
+            assert!(!gate.observe(now));
+        }
+        gate.reset(now);
+        assert!(!gate.observe(now + Duration::from_secs(30)));
+        assert!(!gate.observe(now + Duration::from_secs(60)));
+        assert!(gate.observe(now + Duration::from_secs(90)));
+        gate.reset(now + Duration::from_secs(91));
+        assert!(!gate.observe(now + Duration::from_secs(100)));
+    }
+
     fn name(pid: u32, engine: u32) -> String {
         format!("pid_{pid}_luid_0x00000000_0x00000001_phys_0_eng_{engine}_engtype_3D")
     }
@@ -305,16 +386,37 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let mut collector = GpuCollector::new(root.clone());
         let mut reading = None;
-        for _ in 0..4 {
-            if let Ok(value) = collector.collect() {
-                reading = Some(value);
-                break;
+        // Allow query warm-up plus the new three-second admission window,
+        // with a bounded margin for a transient invalid startup counter.
+        for _ in 0..12 {
+            match collector.collect() {
+                Ok(value) => {
+                    reading = Some(value);
+                    break;
+                }
+                Err(state) => println!("GPU startup state: {state:?}"),
             }
             std::thread::sleep(Duration::from_secs(1));
         }
         let gpus = reading.expect("global GPU counters must be readable");
         println!("mapped_adapters={} utilization={} dedicated_bytes={} shared_bytes={} unmatched_adapters={}",gpus.len(),gpus[0].utilization,gpus[0].windows_memory.as_ref().unwrap().dedicated_used_bytes,gpus[0].windows_memory.as_ref().unwrap().shared_used_bytes,gpus[0].windows_memory.as_ref().unwrap().unverified_adapter_count);
         assert!(!gpus.is_empty());
+        let initial_ids: Vec<_> = gpus.iter().map(|g| g.object_id.clone()).collect();
+        let initial_records = collector.registry.as_ref().unwrap().records().len();
+        for _ in 0..5 {
+            std::thread::sleep(Duration::from_secs(1));
+            let next = collector
+                .collect()
+                .expect("stable GPU must keep publishing");
+            assert_eq!(
+                next.iter().map(|g| g.object_id.clone()).collect::<Vec<_>>(),
+                initial_ids
+            );
+        }
+        assert_eq!(
+            collector.registry.as_ref().unwrap().records().len(),
+            initial_records
+        );
         drop(collector);
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -16,6 +16,38 @@ mod windows_save_tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
     #[test]
+    fn locked_unicode_path_recovers_without_losing_unrelated_fields() {
+        let root =
+            std::env::temp_dir().join(format!("monitor 设置 recovery {}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = SettingsStore::new(root.clone());
+        let original = Settings {
+            language: "en".into(),
+            foreground_interval_ms: 1700,
+            ..Default::default()
+        };
+        store.save(&original).unwrap();
+        let before = std::fs::read(&store.path).unwrap();
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&store.path)
+            .unwrap();
+        assert!(store.load_outcome().error.is_some());
+        assert!(store.modify(|s| s.background_interval_ms = 4000).is_err());
+        drop(lock);
+        assert_eq!(std::fs::read(&store.path).unwrap(), before);
+        let recovered = store.load_outcome();
+        assert!(recovered.error.is_none());
+        assert_eq!(recovered.settings.foreground_interval_ms, 1700);
+        let saved = store.modify(|s| s.background_interval_ms = 4000).unwrap();
+        assert_eq!(saved.language, "en");
+        assert_eq!(saved.foreground_interval_ms, 1700);
+        assert_eq!(store.load().background_interval_ms, 4000);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn existing_file_can_be_replaced_and_failed_replacement_preserves_it() {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -123,9 +155,6 @@ impl Settings {
 
 pub struct SettingsStore {
     path: PathBuf,
-    /// Last load/validation error, kept so the UI can show it instead of a
-    /// silent fall-back to defaults (A13). `None` = last load was clean.
-    last_error: Mutex<Option<String>>,
 }
 
 /// Outcome of a load: the settings to use plus whether the on-disk file was
@@ -140,8 +169,19 @@ impl SettingsStore {
     pub fn new(dir: PathBuf) -> Self {
         Self {
             path: dir.join("settings.json"),
-            last_error: Mutex::new(None),
         }
+    }
+
+    fn modify(&self, edit: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+        let loaded = self.load_outcome();
+        if let Some(error) = loaded.error {
+            return Err(error);
+        }
+        let mut next = loaded.settings;
+        edit(&mut next);
+        next.validate()?;
+        self.save(&next)?;
+        Ok(next)
     }
 
     /// Load with validation + migration (A13).
@@ -187,18 +227,8 @@ impl SettingsStore {
         }
     }
 
-    /// Back-compat accessor: settings only, error recorded for the UI.
     pub fn load(&self) -> Settings {
-        let outcome = self.load_outcome();
-        if let Ok(mut e) = self.last_error.lock() {
-            *e = outcome.error.clone();
-        }
-        outcome.settings
-    }
-
-    /// The last load/validation error, if any (A13 visibility).
-    pub fn last_error(&self) -> Option<String> {
-        self.last_error.lock().ok().and_then(|e| e.clone())
+        self.load_outcome().settings
     }
 
     /// Atomic save: validate, write to a UNIQUE temp file, fsync, then rename
@@ -265,14 +295,50 @@ pub fn set(settings: Settings) -> Result<(), String> {
     store.save(&settings)
 }
 
-/// The store's last load/validation error for surfacing in the UI (A13).
-pub fn last_error() -> Option<String> {
-    STORE.lock().ok()?.as_ref()?.last_error()
+/// Patch the latest persisted state while holding the writer lock.
+pub fn update(edit: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+    let guard = STORE.lock().map_err(|e| e.to_string())?;
+    guard
+        .as_ref()
+        .ok_or("settings store not initialized")?
+        .modify(edit)
+}
+
+/// Return settings and its read error from one snapshot under the store lock.
+pub fn read() -> Result<LoadOutcome, String> {
+    let guard = STORE.lock().map_err(|e| e.to_string())?;
+    Ok(guard
+        .as_ref()
+        .ok_or("settings store not initialized")?
+        .load_outcome())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn patches_preserve_other_fields_and_corrupt_files() {
+        let dir =
+            std::env::temp_dir().join(format!("monitor-settings-patch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SettingsStore::new(dir.clone());
+        store.save(&Settings::default()).unwrap();
+        store.modify(|s| s.language = "en".into()).unwrap();
+        store.modify(|s| s.foreground_interval_ms = 2000).unwrap();
+        assert_eq!(store.load().language, "en");
+        store.modify(|s| s.language = "zh".into()).unwrap();
+        assert_eq!(store.load().foreground_interval_ms, 2000);
+        assert!(store.modify(|s| s.language = "invalid".into()).is_err());
+        assert_eq!(store.load().language, "zh");
+        std::fs::write(dir.join("settings.json"), "broken").unwrap();
+        assert!(store.modify(|s| s.language = "en".into()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json")).unwrap(),
+            "broken"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn defaults_are_valid() {
