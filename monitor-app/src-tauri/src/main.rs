@@ -2,5 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    if app_lib::enhanced::storage_service::entry() {
+        return;
+    }
     app_lib::run();
 }

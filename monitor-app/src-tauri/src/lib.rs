@@ -1,3 +1,4 @@
+pub mod enhanced;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
@@ -327,6 +328,34 @@ async fn terminate_process(pid: u32, start_marker: Option<String>) -> Result<(),
     termination::request(pid, marker)
 }
 
+#[tauri::command]
+async fn start_storage_enhanced() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        enhanced::storage_service::start().await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("unsupported".into())
+    }
+}
+#[tauri::command]
+fn stop_storage_enhanced() {
+    #[cfg(target_os = "windows")]
+    enhanced::storage_service::stop();
+}
+#[tauri::command]
+fn get_storage_enhanced() -> serde_json::Value {
+    #[cfg(target_os = "windows")]
+    {
+        serde_json::to_value(enhanced::storage_service::status()).unwrap()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        serde_json::json!({"state":"unsupported","observed_at":0,"disks":[]})
+    }
+}
+
 /// All explicit reopen actions restore the existing window, never create a
 /// second window or restart the collector. macOS Dock clicks emit Reopen even
 /// when a minimized window is reported as visible, so do not gate on visibility.
@@ -543,6 +572,9 @@ pub fn run() {
       }
         })
         .invoke_handler(tauri::generate_handler![
+            start_storage_enhanced,
+            stop_storage_enhanced,
+            get_storage_enhanced,
             get_system_info,
             quit_app,
             runtime_info::get_runtime_info,
@@ -561,6 +593,8 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app, _event| {
             if let tauri::RunEvent::Exit = _event {
+                #[cfg(target_os="windows")]
+                enhanced::storage_service::stop();
                 sampler::shutdown();
             }
             #[cfg(target_os = "macos")]

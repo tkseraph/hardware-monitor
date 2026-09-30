@@ -1,0 +1,70 @@
+{
+  "date": "2026-09-23",
+  "execution": "single user-authorized administrator storage-method-only run",
+  "artifact_sha256": "C477840AFB086C4465156BDE6957940914A40E8B9674BF102F2A5B2F2626C7DE",
+  "result": {
+    "disks": [
+      {
+        "disk_number": 1,
+        "reliability": {
+          "return_code": 0,
+          "rows": [
+            {
+              "DeviceSlot": 1,
+              "PowerOnHours": null,
+              "Temperature": 41,
+              "TemperatureMax": 83,
+              "Wear": 0
+            }
+          ],
+          "state": "ok"
+        }
+      },
+      {
+        "disk_number": 0,
+        "reliability": {
+          "return_code": 0,
+          "rows": [
+            {
+              "DeviceSlot": 0,
+              "PowerOnHours": null,
+              "Temperature": 56,
+              "TemperatureMax": 90,
+              "Wear": 0
+            }
+          ],
+          "state": "ok"
+        }
+      },
+      {
+        "disk_number": 2,
+        "reliability": {
+          "return_code": 0,
+          "rows": [
+            {
+              "DeviceSlot": 2,
+              "PowerOnHours": null,
+              "Temperature": 0,
+              "TemperatureMax": 0,
+              "Wear": 0
+            }
+          ],
+          "state": "ok"
+        }
+      }
+    ],
+    "identity_mapping": "current query only; not persisted hardware identity",
+    "method": "PS_StorageCmdlets.GetStorageReliabilityCounter",
+    "state": "ok"
+  },
+  "probe_processes_exited": true,
+  "etw_started": false,
+  "drivers_installed": false,
+  "limitations": [
+    "Single observation, not independent temperature validation",
+    "Disk numbers and DeviceSlot are runtime query labels, not persisted hardware identities",
+    "USB temperature zero not accepted as verified sensor reading",
+    "Wear zero is the provider raw field, not proof of full remaining lifetime",
+    "PowerOnHours null for all three returned devices"
+  ]
+}

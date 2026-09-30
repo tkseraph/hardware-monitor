@@ -1,0 +1,81 @@
+{
+  "date": "2026-09-30",
+  "stage": "storage-temperature-history",
+  "artifact_sha256": "A3A44FA0451976C0980785C91D0E8D3CB88B585323AC286D0F3E9071D2A17DF0",
+  "result": "passed",
+  "checks": {
+    "user_authorized_retry": true,
+    "real_sample_save": true,
+    "uid_matches_existing_registry": true,
+    "single_continuous_segment_per_disk": true,
+    "no_zero_temperature_saved": true,
+    "no_unverified_usb_series": true,
+    "both_charts_observed_after_stop": true,
+    "companion_exit_confirmed": true,
+    "isolated_main_exit_confirmed": true,
+    "tests_added_this_run": 0,
+    "test_suites_rerun_this_run": 0
+  },
+  "series": [
+    {
+      "name": "ZHITAI TiPlus7100 2TB",
+      "sample_count": 6,
+      "min_c": 54.0,
+      "max_c": 56.0,
+      "first_timestamp": 1790733409,
+      "last_timestamp": 1790733438,
+      "span_seconds": 29,
+      "segments": 1,
+      "unit": "°C"
+    },
+    {
+      "name": "CT1000P3PSSD8",
+      "sample_count": 6,
+      "min_c": 41.0,
+      "max_c": 41.0,
+      "first_timestamp": 1790733409,
+      "last_timestamp": 1790733438,
+      "span_seconds": 29,
+      "segments": 1,
+      "unit": "°C"
+    }
+  ],
+  "prior_attempt": {
+    "artifact_sha256": "A1A86C58F93BF04295A278AFE54A2EA1CABEA5D0D8778A010DE8E3604317DFD4",
+    "result": "failed",
+    "cause": "parent protocol 2, companion check 1",
+    "temperature_samples": 0
+  },
+  "limitations": [
+    "Not an independent sensor calibration",
+    "Crash while elevated query is in flight not validated",
+    "Protected installation and signing pending",
+    "CPU/GPU temperatures and process disk I/O not completed"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/storage_service.rs",
+      "sha256": "2394718d34405b2d730a07a5b2e6d3b56bcf0433f3a75444dd5bcd58e36a9566"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/temperature_history.rs",
+      "sha256": "8c08a4ba325655af12ecdee457ee49a0c7298e7b1854160a3c77c8753297cd09"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/probe.rs",
+      "sha256": "43572b1df84c3257fbdea669a0c4ff3270fe0437aee6d448c7704ac1f1e32bc7"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/scheduler.rs",
+      "sha256": "d87b7d84c535ddf318ea603832ffa44111cd3457a1ce4b2c7deed3fceb0fdae2"
+    },
+    {
+      "path": "monitor-app/src/WindowsStorage.tsx",
+      "sha256": "c86c1a988365473304e94ad2602008f373a1425e7b51db20f90fab7c7471a7bf"
+    },
+    {
+      "path": "monitor-app/src/EnhancedStorage.tsx",
+      "sha256": "19ab1573e46535267e9442eabf45d561a42c9fe9c94de23ec7c2483e2ca6bc4c"
+    }
+  ]
+}

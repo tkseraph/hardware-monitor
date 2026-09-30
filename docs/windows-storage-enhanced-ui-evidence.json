@@ -1,0 +1,68 @@
+{
+  "date": "2026-09-30",
+  "stage": "storage-enhanced-ui-enable-read-stop",
+  "artifact_sha256": "6777EE07B4B94B45D5EB745BC1F887C0E80D30B5CCF33C0DC83687CB0717BBC7",
+  "checks": {
+    "authorized_ui_enable": true,
+    "real_temperature_visible": true,
+    "periodic_update_visible": true,
+    "stop_button_returned_to_enable": true,
+    "companion_exit_confirmed": true,
+    "test_main_exit_confirmed": true,
+    "tests_added_this_run": 0,
+    "test_suites_rerun_this_run": 0
+  },
+  "observed": {
+    "CT1000P3PSSD8": {
+      "temperature_c": 41,
+      "windows_health": "normal"
+    },
+    "ZHITAI TiPlus7100 2TB": {
+      "temperature_c_first": 55,
+      "temperature_c_later": 54,
+      "windows_health": "normal"
+    },
+    "Kingston USB": {
+      "temperature": "unknown display",
+      "windows_health": "normal"
+    },
+    "power_on_hours": "unknown display",
+    "wear": "raw provider value 0%, not remaining life"
+  },
+  "limitations": [
+    "Temperature history not connected",
+    "Live sensor values not independently calibrated against a separate tool",
+    "App crash during in-flight elevated query not validated",
+    "Protected installation and signing pending"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/storage_service.rs",
+      "sha256": "927bf071981b3be399c7342afe9e3891c6eb10e40b1761654d2d42e4a15eddfa"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/pipe.rs",
+      "sha256": "93239ecb484b15d3138f8d8d19b96afd46bd2c4e1969b98774d05e54a4df0a2e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/probe.rs",
+      "sha256": "631af469281676f48fc594d23c60f0250ec8b6b1e29f64c9a59d4c96b05fc587"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/main.rs",
+      "sha256": "551af84edac499f8c3b0e4f93ec68bb45eb85384b2f896f0d469e92814efbd99"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/lib.rs",
+      "sha256": "da95e20bad0603483f6ca4ec9aacd89cdd4910c03094cafb39f94a6cdd347f0a"
+    },
+    {
+      "path": "monitor-app/src/EnhancedStorage.tsx",
+      "sha256": "0499396a0953a43ac160f6faaa795bf2e130c42bfd97b9cfcca4903e9d3322ac"
+    },
+    {
+      "path": "monitor-app/src/WindowsStorage.tsx",
+      "sha256": "21b32c184c449561023982cf87c169300431c5ce47c6d33fd910d29fb54ceaed"
+    }
+  ]
+}

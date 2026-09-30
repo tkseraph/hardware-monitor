@@ -1,0 +1,104 @@
+{
+  "stage": "E3-live-callback-diagnostic-awaiting-admin-test",
+  "verified_at": "2026-09-28T02:59:13.073132+00:00",
+  "tests": {
+    "passed": 125,
+    "failed": 0,
+    "ignored": 9
+  },
+  "strict_clippy": true,
+  "native_debug_build": true,
+  "real_etw_attribution_tested": false,
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/disk_io.rs",
+      "sha256": "1bdc60331a568a7cd4e3144d4de0b69382c2fc189f596b3c90324df763bfd1c3"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/etw_decode.rs",
+      "sha256": "9e4b06d60ee697749a0233734b99bdbda3cd989742196b6a7a78545065fe7227"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/event_order.rs",
+      "sha256": "0947834376ab249aa5791c85bdc497031e73fa789388b64f17e676c686ceb05f"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/identity.rs",
+      "sha256": "cea0074d692f5f343a50f6c8dd7ab03a1ac398e6d94ab44dcafdf86d97f1d90e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/baseline.rs",
+      "sha256": "539bfcb7fb23a89543f3eb706844ce1ac44f05679a3b79f17bf91c32a7e753ea"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/clock_bridge.rs",
+      "sha256": "54890a41e018e30920e7223b895ddfbd06b602570f73d14e47264fc9c194525d"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/enumeration.rs",
+      "sha256": "173d06c63f621c9a72a212ac59828af834fc7f693755f30e0fb0ce0ae488a8cf"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/pipeline.rs",
+      "sha256": "0d46eef02452c0037077b0dc68f965d2f46b4d170ecbf480ab2997569a60c95e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/trace_run.rs",
+      "sha256": "4c8c159e847e604310c214608fcdc9bfdbc0f41f74a83fda01715583c8c08081"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/probe.rs",
+      "sha256": "dffd126a78ae05080ac6ed519c31470c73b23f5276b916700e5d2f30ea26e9bd"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/mod.rs",
+      "sha256": "dd5bc0930f29db3a042677da08a66e20ef10dbfc93f33f7e61619d6f60918c12"
+    }
+  ],
+  "native_tdh_synthetic_fixture": {
+    "passed": 1,
+    "elevated": false,
+    "trace_session_started": false
+  },
+  "identity_native_test_scope": "current process and current thread only; normal permission",
+  "systemwide_baseline_tested": false,
+  "native_baseline_candidate": {
+    "permission": "ordinary user",
+    "capture_ms": 275,
+    "processes_seen": 410,
+    "processes_verified": 246,
+    "processes_unavailable": 163,
+    "idle_excluded": 1,
+    "threads_seen": 10866,
+    "threads_verified": 7933,
+    "threads_unavailable": 2933,
+    "verified_scope_installed": true,
+    "systemwide_stream_ready": false
+  },
+  "pipeline_tests_after_generation_fault_fix": {
+    "passed": 4,
+    "failed": 0
+  },
+  "native_pipeline_candidate": {
+    "permission": "ordinary user",
+    "capture_ms": 133,
+    "processes_seen": 410,
+    "processes_verified": 247,
+    "processes_unavailable": 162,
+    "idle_excluded": 1,
+    "threads_seen": 10818,
+    "threads_verified": 7965,
+    "threads_unavailable": 2853,
+    "pipeline_stopped": true,
+    "verified_scope_installed": true,
+    "systemwide_stream_ready": false
+  },
+  "pipeline_probe": {
+    "artifact_sha256": "05A0549BAB97A1B8B7978C39D0852F106967D7B06FE6C7DC17C76A9C4EF72913",
+    "ordinary_start_code": 5,
+    "trace_started": false,
+    "elevated_run_executed": true,
+    "rate_validation_passed": false,
+    "report": "windows-etw-pipeline-admin-evidence.json"
+  }
+}

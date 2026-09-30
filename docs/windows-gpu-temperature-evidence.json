@@ -1,0 +1,92 @@
+{
+  "date": "2026-09-30",
+  "stage": "gpu-temperature-source",
+  "result": "source_readable",
+  "source": "ADLX current GPU edge temperature",
+  "privilege": "ordinary",
+  "sdk": {
+    "tag": "v1.5",
+    "commit": "d9f04a9bba022d6cf6333f005dd540b4ad19fb63"
+  },
+  "runtime": {
+    "path": "C:/Windows/System32/amdadlx64.dll",
+    "version": "1.5.0.124",
+    "sha256": "13C4628222B07E812C755EEE53308ED4AA1B2FA25E1CE96D4E5FABD88309FD60",
+    "authenticode": "Valid",
+    "signer": "Microsoft Windows Hardware Compatibility Publisher"
+  },
+  "artifact_sha256": "89E6F6240CDB71B79FF76ED41E58D2D2FDEA400036C8738090491E9D63EB0A3A",
+  "observed": {
+    "state": "ok",
+    "runtime_version": "1.5.0.124",
+    "observations": [
+      {
+        "gpus": [
+          {
+            "name": "AMD Radeon(TM) 890M Graphics",
+            "dxgi_luid_match": true,
+            "edge_supported": true,
+            "hotspot_supported": false,
+            "metrics_code": 0,
+            "edge_c": 61,
+            "hotspot_c": null
+          }
+        ]
+      },
+      {
+        "gpus": [
+          {
+            "name": "AMD Radeon(TM) 890M Graphics",
+            "dxgi_luid_match": true,
+            "edge_supported": true,
+            "hotspot_supported": false,
+            "metrics_code": 0,
+            "edge_c": 61,
+            "hotspot_c": null
+          }
+        ]
+      },
+      {
+        "gpus": [
+          {
+            "name": "AMD Radeon(TM) 890M Graphics",
+            "dxgi_luid_match": true,
+            "edge_supported": true,
+            "hotspot_supported": false,
+            "metrics_code": 0,
+            "edge_c": 61,
+            "hotspot_c": null
+          }
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "three_low_frequency_observations": true,
+    "unique_dxgi_luid_match": true,
+    "exit_code": 0,
+    "adlx_termination_success": true,
+    "new_driver_installed": false,
+    "uac_requested": false,
+    "tracking_started": false,
+    "application_history_written": false,
+    "test_suites_rerun": 0
+  },
+  "limitations": [
+    "Source validation only; GPU UI/history not integrated",
+    "Hotspot unsupported by this runtime for the observed GPU",
+    "No independent reference tool calibration",
+    "Runtime version whitelist currently 1.5.0.124 only",
+    "SDK redistribution terms must be resolved before product bundling"
+  ],
+  "source_inputs": [
+    {
+      "path": "scripts/probes/windows_gpu_temperature.cpp",
+      "sha256": "d506385bff481c92d267dc6b9e91720670a5092234d3ce9e5559016c122605c9"
+    },
+    {
+      "path": "scripts/probes/windows_gpu_temperature.ps1",
+      "sha256": "59e63b34b287781878a1095552abfb45468bacde7dca93639a9cf451a9c09b71"
+    }
+  ]
+}

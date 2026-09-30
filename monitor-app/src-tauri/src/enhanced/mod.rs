@@ -1,0 +1,25 @@
+//! Infrastructure only. No privileged launch, hardware probe or UI registration.
+#[cfg(target_os = "windows")]
+pub mod baseline;
+#[cfg(target_os = "windows")]
+pub mod clock_bridge;
+pub mod disk_io;
+#[cfg(target_os = "windows")]
+pub mod enumeration;
+pub mod etw_decode;
+pub mod event_order;
+#[cfg(target_os = "windows")]
+pub mod identity;
+#[cfg(target_os = "windows")]
+pub mod pipe;
+#[cfg(target_os = "windows")]
+pub mod pipeline;
+#[cfg(target_os = "windows")]
+pub mod probe;
+pub mod protocol;
+#[cfg(target_os = "windows")]
+pub mod storage_service;
+#[cfg(target_os = "windows")]
+pub mod temperature_history;
+#[cfg(target_os = "windows")]
+pub mod trace_run;

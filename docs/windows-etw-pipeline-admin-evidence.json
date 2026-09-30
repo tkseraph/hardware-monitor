@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-28",
+  "authorization": "single administrator pipeline-only validation",
+  "artifact_sha256": "05A0549BAB97A1B8B7978C39D0852F106967D7B06FE6C7DC17C76A9C4EF72913",
+  "raw_report": {
+    "recovery_stop_code": null,
+    "result": {
+      "buffers_lost": 0,
+      "close_code": 7007,
+      "consumer_code": 0,
+      "consumer_joined": true,
+      "coverage": {
+        "idle_excluded": 1,
+        "lifecycle_handoff_verified": false,
+        "processes_seen": 419,
+        "processes_unavailable": 29,
+        "processes_verified": 389,
+        "threads_seen": 10936,
+        "threads_unavailable": 1829,
+        "threads_verified": 9107
+      },
+      "decode_error_schemas": [],
+      "decode_errors": 0,
+      "decoded_events": 23817,
+      "events_lost": 0,
+      "loss_observed": false,
+      "observed_ready_windows": 0,
+      "observed_subset_read_bytes": 0,
+      "observed_subset_write_bytes": 0,
+      "phase_before_stop": "Invalid(Ordering)",
+      "pipeline_stopped": true,
+      "queue_dropped": 3189,
+      "rejected_windows": 0,
+      "scope": "diagnostic subset only; no per-process output or UI publication",
+      "start_code": 0,
+      "started": true,
+      "stop_code": 0,
+      "systemwide_stream_ready": false
+    }
+  },
+  "assessment": {
+    "real_decode_succeeded": true,
+    "rate_validation_passed": false,
+    "any_loss_in_final_counters": true,
+    "probe_process_exited": true,
+    "matching_session_names_after_exit": 0,
+    "session_query_exit_code": 0,
+    "notes": [
+      "queue_dropped=3189 overrides raw loss_observed=false for final assessment",
+      "No valid rate windows; zero byte aggregates must not be displayed as real zero rates",
+      "CloseTrace 7007 is asynchronous close pending; ProcessTrace returned 0 and thread joined",
+      "Exact phase of queue overflow and ordering invalidation is not established by this report"
+    ]
+  }
+}

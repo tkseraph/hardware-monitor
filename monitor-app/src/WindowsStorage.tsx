@@ -1,3 +1,5 @@
+import {TemperatureTrend} from "./TemperatureTrend";
+import {EnhancedStorage} from "./EnhancedStorage";
 import { HistoryNotice } from "./HistoryNotice";
 import { useState } from 'react';
 import { orderOverviewDisks } from './storage-order';
@@ -41,6 +43,10 @@ function ThroughputHistory({uid, english, intervalMs}: {uid:string;english:boole
     </> : <p>{loaded?(english?'No history for this connection yet':'本次连接暂无历史'):(english?'Loading history…':'正在加载历史…')}</p>}
   </div>;
 }
+function TemperatureHistory({uid,label,english}:{uid:string;label:string;english:boolean}){
+  const {points,view,status}=useHistoryQuery('disk.temperature',uid,3600);
+  return <TemperatureTrend history={points} view={view} status={status} label={label} english={english}/>;
+}
 export function WindowsStorage({snapshot,throughput,english=false,details=false,intervalMs=1000,onDetails}: {
   snapshot: WindowsStorageSnapshot;throughput?:WindowsThroughput|null;english?:boolean;details?:boolean;intervalMs?:number;onDetails?:()=>void;
 }) {
@@ -48,6 +54,7 @@ export function WindowsStorage({snapshot,throughput,english=false,details=false,
   const groups=groupVolumes(snapshot.disks,snapshot.volumes);
   return <section className="windows-storage">
     <div className="disk-summary"><h2>{english?'Storage devices':'存储设备'}</h2>{!details&&onDetails&&<button onClick={onDetails}>{english?'Storage details':'存储详情'}</button>}</div>
+    {details&&<EnhancedStorage english={english}/>}
     {snapshot.registry_state!=='ok'&&<p className="note">{english?'Device history registry is unavailable; new device history is not associated.':'设备历史注册表暂不可用，未确认身份的磁盘不记录新历史。'}</p>}
     {snapshot.volume_state!=='ok'&&<p className="note">{english?'Volume capacity could not be read.':'卷容量读取失败。'} {sourceMessage(snapshot.volume_state,!english)}</p>}
     {orderOverviewDisks(snapshot.disks).map(d=>{
@@ -59,13 +66,13 @@ export function WindowsStorage({snapshot,throughput,english=false,details=false,
         {d.identity_state!=='ok'&&<p className="note">{english?'Device identity is unverified; performance and history are not associated.':'设备身份尚未验证，暂不关联性能与历史。'}</p>}
         {perf&&perf.state!=='ok'&&<p>{sourceMessage(perf.state,!english)}</p>}
         {groups.dedicated[d.number]?.length ? <Volumes volumes={groups.dedicated[d.number]} english={english}/> : <p>{english?'No uniquely associated volume':'暂无可单独归属的卷'}</p>}
-        {details&&d.device_uid&&<ThroughputHistory uid={d.device_uid} english={english} intervalMs={intervalMs}/>}
+        {details&&d.device_uid&&<><ThroughputHistory uid={d.device_uid} english={english} intervalMs={intervalMs}/><TemperatureHistory uid={d.device_uid} label={d.name} english={english}/></>}
       </article>;
     })}
     {!!groups.shared.length&&<article className="card"><h3>{english?'Shared or unassigned volumes':'跨盘或未确认归属的卷'}</h3><p>{english?'Capacity is shown once here and is not assigned to a single physical disk.':'容量只在此处展示一次，不归算到某一块物理盘。'}</p><Volumes volumes={groups.shared} english={english}/></article>}
     {!!throughput?.unmapped_instances&&<p className="note">{english?`${throughput.unmapped_instances} performance instances have no confirmed device mapping.`:`有 ${throughput.unmapped_instances} 个性能实例尚未确认设备映射。`}</p>}
     {details&&<article className="card"><h3>{english?'Saved connection histories':'已保存的连接历史'}</h3><p>{english?'A restart starts a new series when continuity cannot be confirmed. Old records remain available; matching descriptions do not prove the same device.':'无法确认连续性时，重启会建立新序列。旧记录仍可查看；名称与容量相同不代表已确认是同一设备。'}</p>
       <select aria-label={english?'Historical connection':'历史连接'} value={archive} onChange={e=>setArchive(e.target.value)}><option value="">{english?'Choose a saved series':'选择历史序列'}</option>{snapshot.history_series.map(s=><option key={s.uid} value={s.uid}>{s.name} · {new Date(s.created_at*1000).toLocaleString()} · {s.uid.slice(0,8)}</option>)}</select>
-      {archive&&<ThroughputHistory uid={archive} english={english} intervalMs={intervalMs}/>}</article>}
+      {archive&&<><ThroughputHistory uid={archive} english={english} intervalMs={intervalMs}/><TemperatureHistory uid={archive} label={english?"Saved disk":"历史磁盘"} english={english}/></>}</article>}
   </section>;
 }

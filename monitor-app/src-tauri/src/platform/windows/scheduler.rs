@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+static DISK_BINDINGS: Mutex<Option<crate::platform::windows::storage::Bindings>> = Mutex::new(None);
 static RUNTIME: Mutex<Option<SourceRuntime>> = Mutex::new(None);
 static WINDOW_VISIBLE: AtomicBool = AtomicBool::new(true);
 
@@ -37,6 +38,53 @@ pub fn lost_history_batches() -> u64 {
         .as_ref()
         .map_or(0, SourceRuntime::lost_history_batches)
 }
+pub struct HistoryTarget {
+    pub number: u32,
+    pub uid: String,
+    pub name: String,
+    pub size_bytes: u64,
+    pub lease: std::sync::Arc<crate::platform::windows::storage_native::DiskLease>,
+}
+pub fn temperature_targets() -> Vec<HistoryTarget> {
+    let Some(bindings) = DISK_BINDINGS.lock().unwrap().as_ref().cloned() else {
+        return vec![];
+    };
+    let Some(live) = bindings.lock().unwrap().clone() else {
+        return vec![];
+    };
+    if live.observed.elapsed() > live.ttl {
+        return vec![];
+    }
+    let Some(storage) = latest_snapshot().and_then(|s| s.windows_storage) else {
+        return vec![];
+    };
+    let mut targets = Vec::new();
+    for d in storage.disks {
+        if d.kind != "physical" {
+            continue;
+        }
+        let Some(uid) = d.device_uid else {
+            continue;
+        };
+        if let Some(lease) = live
+            .disks
+            .iter()
+            .find(|b| b.number == d.number && b.uid.as_ref() == Some(&uid))
+            .and_then(|b| b.lease.clone())
+            .filter(|l| l.valid())
+        {
+            targets.push(HistoryTarget {
+                number: d.number,
+                uid,
+                name: d.name,
+                size_bytes: d.size_bytes,
+                lease,
+            });
+        }
+    }
+    targets
+}
+
 pub fn shutdown() {
     let runtime = RUNTIME.lock().unwrap().take();
     if let Some(runtime) = runtime {
@@ -87,6 +135,7 @@ pub async fn run_scheduler(data_root: Option<std::path::PathBuf>) {
             }),
         });
         let bindings = std::sync::Arc::new(Mutex::new(None));
+        *DISK_BINDINGS.lock().unwrap() = Some(bindings.clone());
         let storage_bindings = bindings.clone();
         specs.push(SourceSpec {
             id: SourceId::Storage,

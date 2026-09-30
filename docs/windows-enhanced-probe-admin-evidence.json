@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-23",
+  "execution": "single user-authorized administrator run",
+  "artifact_sha256": "4F849BDA376B255A204AD2C14FAA5CBF608B243E30669F60824AE60E560ED3EC",
+  "result": {
+    "drivers_installed": false,
+    "etw": {
+      "buffers_lost": 0,
+      "close_code": 0,
+      "consumer_code": 0,
+      "consumer_joined": true,
+      "events_lost": 0,
+      "file_logging": false,
+      "per_process_attribution": false,
+      "read_events": 26,
+      "start_code": 0,
+      "started": true,
+      "stop_code": 0,
+      "window_seconds": 5,
+      "write_events": 215
+    },
+    "privileges_adjusted": false,
+    "recovery_stop_code": null,
+    "scope": "capability only; not process attribution or validated temperature integration",
+    "storage": {
+      "disk_health": {
+        "rows": [
+          {
+            "BusType": 17,
+            "HealthStatus": 0,
+            "Number": 1
+          },
+          {
+            "BusType": 17,
+            "HealthStatus": 0,
+            "Number": 0
+          },
+          {
+            "BusType": 7,
+            "HealthStatus": 0,
+            "Number": 2
+          }
+        ],
+        "state": "ok"
+      },
+      "reliability": {
+        "rows": [],
+        "state": "ok"
+      },
+      "scope": "provider fields only; no identity association or sensor correctness claim"
+    },
+    "version": 1
+  },
+  "limitations": [
+    "Disk event arrival only; no byte decoding or per-process attribution",
+    "Reliability class enumeration returned empty; association/method and direct storage-query paths remain untested",
+    "CPU/GPU sensors and third-party drivers not tested"
+  ]
+}
