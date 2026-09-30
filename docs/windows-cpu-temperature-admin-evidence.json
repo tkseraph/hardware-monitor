@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-30",
+  "stage": "cpu-temperature-driver-install-and-single-probe",
+  "result": "source_readable_on_observed_machine",
+  "installer": {
+    "sha256": "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032",
+    "exit_code": 0,
+    "restart_requested": false,
+    "arguments": [
+      "-install",
+      "-silent"
+    ]
+  },
+  "installed": {
+    "display_version": "2.2.0.0",
+    "install_location": "C:\\Program Files\\PawnIO",
+    "uninstall_string": "\"C:\\Program Files\\PawnIO\\uninstall.exe\" -uninstall",
+    "driver_path": "C:\\WINDOWS\\System32\\DriverStore\\FileRepository\\pawnio.inf_amd64_a72a2f969b8b7496\\PawnIO.sys",
+    "driver_sha256": "FCA6E7D58B0CF38DBB913A2B9E532F48629145D395F454B16A9F58E97B8D3940",
+    "service_type": 1,
+    "start_type": 3,
+    "catalog_status": "Valid",
+    "catalog_signer": "CN=Microsoft Windows Hardware Compatibility Publisher, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+    "files": [
+      {
+        "Name": "PawnIOLib.dll",
+        "Length": 39248
+      },
+      {
+        "Name": "PawnIOLib.h",
+        "Length": 4350
+      },
+      {
+        "Name": "PawnIOUtil.exe",
+        "Length": 316088
+      },
+      {
+        "Name": "uninstall.exe",
+        "Length": 3410960
+      }
+    ]
+  },
+  "probe": {
+    "sha256": "AE6E0A0FEACCA231B393FF21D9D4CF7A787A5C8C4979722A821D27A983C07871",
+    "exit_code": 0,
+    "result": {
+      "observations": [
+        {
+          "celsius": 67.625,
+          "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+          "error_code": null,
+          "family": 26,
+          "model": 36,
+          "sensor": "Tctl",
+          "state": "ok"
+        },
+        {
+          "celsius": 68.25,
+          "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+          "error_code": null,
+          "family": 26,
+          "model": 36,
+          "sensor": "Tctl",
+          "state": "ok"
+        },
+        {
+          "celsius": 67.5,
+          "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+          "error_code": null,
+          "family": 26,
+          "model": 36,
+          "sensor": "Tctl",
+          "state": "ok"
+        }
+      ],
+      "state": "completed"
+    }
+  },
+  "checks": {
+    "user_authorized_install_and_one_probe": true,
+    "approved_signed_driver_hash_matches": true,
+    "catalog_valid": true,
+    "valid_real_tctl_observations": true,
+    "coordinator_and_worker_exit_confirmed": true,
+    "additional_elevated_probe_runs": 0,
+    "no_app_history_written": true,
+    "security_policy_changed": false,
+    "full_test_suites_rerun": 0
+  },
+  "limitations": [
+    "Tctl control temperature, not independently calibrated Tdie",
+    "CPU UI/history and continuous on-demand helper not integrated",
+    "Driver persists as a shared system component; not stopped or removed on app exit"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/cpu_read.rs",
+      "sha256": "e710b1d171b39c16ddb3e9cbfab57890637b82aec95658e57acdd476c9ffbbdd"
+    },
+    {
+      "path": "monitor-app/src-tauri/examples/cpu_temperature_probe.rs",
+      "sha256": "ff8fa258c8c13bb6c3c5d1627fd03b735fa646dd445fa740959f70944f05ffd3"
+    },
+    {
+      "path": "monitor-app/src-tauri/resources/pawnio/AMDFamily17.bin",
+      "sha256": "099dc01d6db97ea997fec4a461e191cc64b9d7ce47c9d2153c451c56c2adcf50"
+    },
+    {
+      "path": "vendor/pawnio-amdfamily17-0.2.2/AMDFamily17.p",
+      "sha256": "852ffd303272d7118bb269e462c5d1a9631c47e7fda1170fb298e84b948ed860"
+    }
+  ]
+}

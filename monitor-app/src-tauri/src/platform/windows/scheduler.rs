@@ -10,6 +10,9 @@ use std::time::Duration;
 static DISK_BINDINGS: Mutex<Option<crate::platform::windows::storage::Bindings>> = Mutex::new(None);
 static RUNTIME: Mutex<Option<SourceRuntime>> = Mutex::new(None);
 static WINDOW_VISIBLE: AtomicBool = AtomicBool::new(true);
+pub fn window_visible() -> bool {
+    WINDOW_VISIBLE.load(Ordering::SeqCst)
+}
 
 pub fn effective_interval_ms() -> u64 {
     let settings = crate::settings::get();
@@ -86,6 +89,7 @@ pub fn temperature_targets() -> Vec<HistoryTarget> {
 }
 
 pub fn shutdown() {
+    crate::enhanced::gpu_temperature::stop();
     let runtime = RUNTIME.lock().unwrap().take();
     if let Some(runtime) = runtime {
         let pending = runtime.shutdown(Duration::from_secs(2));
@@ -132,6 +136,15 @@ pub async fn run_scheduler(data_root: Option<std::path::PathBuf>) {
             create: Box::new(move || {
                 let mut collector = crate::platform::windows::gpu::GpuCollector::new(gpu_root);
                 Box::new(move || collector.collect().map(SourceValue::Gpu))
+            }),
+        });
+        crate::enhanced::gpu_temperature::start();
+        specs.push(SourceSpec {
+            id: SourceId::GpuTemperature,
+            minimum_interval: Duration::from_secs(2),
+            create: Box::new(|| {
+                let mut collector = crate::enhanced::gpu_temperature::Collector::default();
+                Box::new(move || collector.collect().map(SourceValue::GpuTemperature))
             }),
         });
         let bindings = std::sync::Arc::new(Mutex::new(None));

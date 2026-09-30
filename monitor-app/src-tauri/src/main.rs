@@ -3,6 +3,18 @@
 
 fn main() {
     #[cfg(target_os = "windows")]
+    if app_lib::enhanced::disk_service::entry() {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    if app_lib::enhanced::cpu_service::entry() {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    if app_lib::enhanced::gpu_read::entry() {
+        return;
+    }
+    #[cfg(target_os = "windows")]
     if app_lib::enhanced::storage_service::entry() {
         return;
     }

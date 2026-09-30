@@ -1,6 +1,5 @@
 //! Coordinates the existing components; invalidation always revokes published rates.
-//! Real lifecycle changes conservatively request a fresh baseline until a verified
-//! dynamic resolver is wired in. This is not an automatic elevated ETW collector.
+//! Lifecycle addresses are retired individually. New IO owners need native verification.
 use super::{
     disk_io::{Accumulator, Limits, Window},
     etw_decode::{Body, Event, Lifecycle},
@@ -148,10 +147,8 @@ impl Pipeline {
             self.invalidate(Fault::BaselineInvalid);
             return Err(Fault::BaselineInvalid);
         }
-        if self.events.lifecycle_changed(self.scan_start, cutover) {
-            self.invalidate(Fault::BaselineChanged);
-            return Err(Fault::BaselineChanged);
-        }
+        // The candidate is only a subset whose held identities cover the whole scan.
+        // Unrelated starts/ends do not invalidate that verified intersection.
         // Keep events after cutover, unlike replacing the entire pending queue.
         if let Err(error) = self.events.drain_through(cutover) {
             let fault = order_fault(error);
@@ -208,26 +205,26 @@ impl Pipeline {
         for event in events {
             match event.body {
                 Body::Process {
+                    pid,
                     phase: Lifecycle::Start | Lifecycle::End,
-                    ..
-                }
-                | Body::Thread {
+                } => self.accumulator.retire_process(event.at_ns, pid),
+                Body::Thread {
+                    pid,
+                    tid,
                     phase: Lifecycle::Start | Lifecycle::End,
-                    ..
-                } => {
-                    self.invalidate(Fault::BaselineChanged);
-                    return Err(Fault::BaselineChanged);
-                }
+                } => self.accumulator.retire_thread(event.at_ns, tid, pid),
                 _ => {
                     event.apply_disk(&mut self.accumulator);
                 }
             }
         }
         let window = self.accumulator.window(watermark);
-        if !window.ready {
+        if !self.accumulator.identity_valid() {
             self.invalidate(Fault::IncompleteWindow);
             return Err(Fault::IncompleteWindow);
         }
+        // Unknown completions make this window incomplete, but must not destroy
+        // independently held identity state. The next clean window can recover.
         Ok(Output {
             generation: self.generation,
             verified_subset_only: true,
@@ -287,7 +284,7 @@ mod tests {
         assert_eq!(result.window.rows[0].read_bps, Some(4096.0));
     }
     #[test]
-    fn scan_lifecycle_race_cannot_publish_a_baseline() {
+    fn unrelated_scan_lifecycle_does_not_discard_a_verified_subset() {
         let mut p = Pipeline::new(Limits::default(), 16);
         let epoch = p.begin_baseline(0).unwrap();
         p.enqueue(
@@ -295,18 +292,15 @@ mod tests {
             Event {
                 at_ns: 5,
                 body: Body::Thread {
-                    pid: 1,
-                    tid: 3,
+                    pid: 99,
+                    tid: 77,
                     phase: Lifecycle::End,
                 },
             },
         )
         .unwrap();
-        assert_eq!(
-            p.accept(epoch, 10, candidate(10)),
-            Err(Fault::BaselineChanged)
-        );
-        assert!(p.window(1000).is_err());
+        p.accept(epoch, 10, candidate(10)).unwrap();
+        assert!(p.window(1_000_000_010).unwrap().window.ready);
     }
     #[test]
     fn faults_revoke_outputs_and_old_callbacks_cannot_poison_new_epoch() {
@@ -356,22 +350,109 @@ mod tests {
     }
 
     #[test]
-    fn live_changes_and_unknown_completions_never_publish_valid_zero() {
-        for event in [
+    fn unrelated_lifecycle_and_a_missing_window_recover_without_rebaseline() {
+        let mut p = Pipeline::new(Limits::default(), 16);
+        let epoch = p.begin_baseline(0).unwrap();
+        p.accept(epoch, 0, candidate(0)).unwrap();
+        p.enqueue(
+            epoch,
             Event {
                 at_ns: 1,
+                body: Body::Process {
+                    pid: 99,
+                    phase: Lifecycle::End,
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            p.window(1_000_000_000).unwrap().window.rows[0].read_bps,
+            Some(0.0)
+        );
+        p.enqueue(epoch, end(1_000_000_001)).unwrap();
+        let missing = p.window(2_000_000_000).unwrap();
+        assert!(!missing.window.ready);
+        assert!(missing.window.rows.iter().all(|r| r.read_bps.is_none()));
+        assert_eq!(p.phase(), Phase::Ready);
+        assert_eq!(
+            p.window(3_000_000_000).unwrap().window.rows[0].read_bps,
+            Some(0.0)
+        );
+    }
+    #[test]
+    fn verified_initiation_keeps_original_owner_across_pid_and_tid_reuse() {
+        let mut p = Pipeline::new(Limits::default(), 16);
+        let epoch = p.begin_baseline(0).unwrap();
+        p.accept(epoch, 0, candidate(0)).unwrap();
+        let first = ProcessKey {
+            pid: 1,
+            creation: 2,
+        };
+        let reused = ProcessKey {
+            pid: 1,
+            creation: 99,
+        };
+        p.enqueue(epoch, begin(10)).unwrap();
+        p.enqueue(
+            epoch,
+            Event {
+                at_ns: 20,
                 body: Body::Process {
                     pid: 1,
                     phase: Lifecycle::End,
                 },
             },
-            end(1),
-        ] {
-            let mut p = Pipeline::new(Limits::default(), 16);
-            let epoch = p.begin_baseline(0).unwrap();
-            p.accept(epoch, 0, candidate(0)).unwrap();
-            p.enqueue(epoch, event).unwrap();
-            assert!(p.window(1_000_000_000).is_err());
-        }
+        )
+        .unwrap();
+        p.enqueue(
+            epoch,
+            Event {
+                at_ns: 30,
+                body: Body::VerifiedBegin {
+                    request: 10,
+                    tid: 3,
+                    owner: reused,
+                    direction: Direction::Write,
+                },
+            },
+        )
+        .unwrap();
+        p.enqueue(epoch, end(40)).unwrap();
+        p.enqueue(
+            epoch,
+            Event {
+                at_ns: 50,
+                body: Body::Complete {
+                    request: 10,
+                    bytes: 2048,
+                    direction: Direction::Write,
+                },
+            },
+        )
+        .unwrap();
+        let window = p.window(1_000_000_000).unwrap().window;
+        assert_eq!(
+            window
+                .rows
+                .iter()
+                .find(|r| r.process == first)
+                .unwrap()
+                .read_bytes,
+            4096
+        );
+        assert_eq!(
+            window
+                .rows
+                .iter()
+                .find(|r| r.process == reused)
+                .unwrap()
+                .write_bytes,
+            2048
+        );
+        assert!(window.rows.iter().all(|r| r.read_bps.is_none()));
+        assert_eq!(
+            p.window(2_000_000_000).unwrap().window.rows[0].write_bps,
+            Some(0.0)
+        );
     }
 }

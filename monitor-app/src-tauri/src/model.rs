@@ -27,6 +27,15 @@ pub struct GpuInfo {
     pub memory_allocated_bytes: Option<u64>,
     #[serde(default)]
     pub windows_memory: Option<WindowsGpuMemory>,
+    #[serde(default)]
+    pub windows_temperature: Option<GpuTemperature>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuTemperature {
+    pub object_id: String,
+    pub edge_celsius: Option<f64>,
+    pub state: SourceState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

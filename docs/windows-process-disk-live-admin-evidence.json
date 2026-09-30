@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-30",
+  "stage": "etw-live-initiation-identity-single-admin-run",
+  "artifact_sha256": "2E15F0A9DD0196A3771A8B367096CF64EDECF37778AF7B503AF35FED1EC1806A",
+  "result": {
+    "buffers_lost": 0,
+    "close_code": 0,
+    "consumer_code": 0,
+    "consumer_joined": true,
+    "coverage": {
+      "idle_excluded": 1,
+      "lifecycle_handoff_verified": false,
+      "processes_seen": 435,
+      "processes_unavailable": 28,
+      "processes_verified": 406,
+      "threads_seen": 11665,
+      "threads_unavailable": 1851,
+      "threads_verified": 9814
+    },
+    "decode_error_schemas": [],
+    "decode_errors": 0,
+    "decoded_events": 13737,
+    "events_lost": 0,
+    "final_counters_complete": true,
+    "identity_capacity_rejected": 0,
+    "initiation_identities_resolved": 236,
+    "initiation_identities_unavailable": 511,
+    "loss_observed": false,
+    "loss_observed_during_loop": false,
+    "observed_ready_windows": 1,
+    "observed_subset_read_bytes": 81920,
+    "observed_subset_write_bytes": 3981312,
+    "phase_before_stop": "Ready",
+    "pipeline_stopped": true,
+    "prebaseline_ignored": 3,
+    "queue_dropped": 0,
+    "rejected_windows": 6,
+    "rundown_ignored": 12045,
+    "scope": "diagnostic subset only; no per-process output or UI publication",
+    "shutdown_drained": 0,
+    "shutdown_ignored": 13357,
+    "start_code": 0,
+    "started": true,
+    "stop_code": 0,
+    "systemwide_stream_ready": false
+  },
+  "recovery_stop_code": null,
+  "checks": {
+    "single_user_authorized_run": true,
+    "coordinator_exit_code": 0,
+    "own_processes_exited": true,
+    "own_sessions_not_present_after_exit": true,
+    "loss_and_decode_clean": true,
+    "at_least_one_ready_window": true,
+    "all_windows_complete": false,
+    "no_driver_installed": true,
+    "process_ranking_enabled": false
+  },
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/live_identity.rs",
+      "sha256": "551ceb4925bf42d13851ba8f3e4bd2a895fceb91ee87b0ce543ceb8ec7575a11"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/identity.rs",
+      "sha256": "b9a71d644c23d33990ff3ffaca93cd0cf570b5467dc1c7da5431fd13dbb5fb42"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/pipeline.rs",
+      "sha256": "5413bfccb42e755eab487bb28e77ff808c5151ab98fd611ed247b755c0a119a5"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/disk_io.rs",
+      "sha256": "c69a4c2ebde0cbe0584e3adc440dbf06c70c390785f6d9fcb26bc50c356c6fae"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/etw_decode.rs",
+      "sha256": "6cb99455e31150a41a8e34b99e5230bd210afadee14433726b04d4a393bea7cd"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/trace_run.rs",
+      "sha256": "ce6545bc273d4653f749a879ac8382af688a296d149e2aa7dd126cae577e6c07"
+    }
+  ]
+}

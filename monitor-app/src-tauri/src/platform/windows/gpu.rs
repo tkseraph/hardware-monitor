@@ -5,10 +5,42 @@ use crate::model::{GpuInfo, SourceState, WindowsGpuMemory};
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1};
 use windows_sys::Win32::System::Performance::*;
 
 type Key = (u32, u32, u32);
+#[derive(Clone)]
+pub struct TemperatureTarget {
+    pub uid: String,
+    pub luid: [u32; 2],
+    pub lease: std::sync::Arc<GpuLease>,
+}
+pub struct GpuLease {
+    factory: IDXGIFactory1,
+    adapter: IDXGIAdapter1,
+    luid: [u32; 2],
+}
+impl GpuLease {
+    pub fn valid(&self) -> bool {
+        unsafe {
+            self.factory.IsCurrent().as_bool()
+                && self.adapter.GetDesc1().is_ok_and(|d| {
+                    [d.AdapterLuid.HighPart as u32, d.AdapterLuid.LowPart] == self.luid
+                })
+        }
+    }
+}
+static TEMPERATURE_TARGETS: std::sync::Mutex<Option<(Instant, Vec<TemperatureTarget>)>> =
+    std::sync::Mutex::new(None);
+pub fn temperature_targets() -> Vec<TemperatureTarget> {
+    TEMPERATURE_TARGETS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|(t, _)| t.elapsed() < Duration::from_secs(15))
+        .map(|(_, v)| v.iter().filter(|t| t.lease.valid()).cloned().collect())
+        .unwrap_or_default()
+}
 fn key(name: &str) -> Option<Key> {
     let fields: Vec<_> = name.split('_').collect();
     let i = fields.iter().position(|v| *v == "luid")?;
@@ -97,6 +129,7 @@ impl Query {
     }
 }
 struct Adapter {
+    handle: IDXGIAdapter1,
     ordinal: u32,
     key: Key,
     name: String,
@@ -151,6 +184,7 @@ impl GpuCollector {
         }
     }
     fn discover(&mut self) -> Result<(), SourceState> {
+        *TEMPERATURE_TARGETS.lock().unwrap() = None;
         let factory: IDXGIFactory1 =
             unsafe { CreateDXGIFactory1() }.map_err(|_| SourceState::Error)?;
         let mut adapters = Vec::new();
@@ -170,6 +204,7 @@ impl GpuCollector {
                 .position(|&v| v == 0)
                 .unwrap_or(desc.Description.len());
             adapters.push(Adapter {
+                handle: adapter,
                 ordinal,
                 key: (
                     desc.AdapterLuid.HighPart as u32,
@@ -299,10 +334,22 @@ impl GpuCollector {
         let archives = registry.records();
         let unmatched = self.adapters.len() - matched.len();
         let mut result = Vec::new();
+        let mut temperature_targets = Vec::new();
         self.previous.clear();
         for (adapter, util, ded, sh) in matched {
+            let luid = [adapter.key.0, adapter.key.1];
+            temperature_targets.push(TemperatureTarget {
+                uid: ids[&adapter.ordinal].clone(),
+                luid,
+                lease: std::sync::Arc::new(GpuLease {
+                    factory: self.factory.as_ref().unwrap().clone(),
+                    adapter: adapter.handle.clone(),
+                    luid,
+                }),
+            });
             self.previous.insert(adapter.ordinal, adapter.key);
             result.push(GpuInfo {
+                windows_temperature: None,
                 object_id: ids[&adapter.ordinal].clone(),
                 name: adapter.name.clone(),
                 utilization: util,
@@ -316,6 +363,7 @@ impl GpuCollector {
                 }),
             });
         }
+        *TEMPERATURE_TARGETS.lock().unwrap() = Some((Instant::now(), temperature_targets));
         Ok(result)
     }
 }

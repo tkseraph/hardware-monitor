@@ -1,0 +1,134 @@
+{
+  "date": "2026-09-30",
+  "status": "installed_source_verified_ui_pending",
+  "installer": {
+    "url": "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe",
+    "version": "2.2.0.0",
+    "local_path": "D:/Program/monitor/.tools/PawnIO_setup.exe",
+    "sha256": "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032",
+    "authenticode": "Valid",
+    "signer": "namazso.eu / namazso",
+    "planned_arguments": [
+      "-install",
+      "-silent"
+    ],
+    "excluded_arguments": [
+      "-unrestricted",
+      "-debuginfo"
+    ],
+    "requires_administrator": true,
+    "restart": "Possible; installer reports reboot required, never reboot automatically"
+  },
+  "driver": {
+    "name": "PawnIO.sys",
+    "version": "2.2.0.0",
+    "sha256": "FCA6E7D58B0CF38DBB913A2B9E532F48629145D395F454B16A9F58E97B8D3940",
+    "architecture": "AMD64",
+    "catalog_sha256": "A37D46840280EFEC92063D3A21014C803939E599B4C0DA4A4D063B79EECA9446",
+    "catalog_signer": "Microsoft Windows Hardware Compatibility Publisher",
+    "inf_sha256": "7C1C203E13693531243FBEE3CB87D7B79170EAE89F5729B3F41387FE68A54F0B",
+    "service": "PawnIO",
+    "service_type": 1,
+    "start_type": 3,
+    "device_hardware_id": "Root\\PawnIO",
+    "destination": "Windows DriverStore via INF DIRID 13",
+    "access": "SYSTEM and elevated Administrators only",
+    "persists_after_application_exit": true,
+    "uninstall": "Windows installed applications: PawnIO; existing shared instances are not automatically upgraded or removed",
+    "kernel_catalog_membership_verified": true
+  },
+  "user_files": {
+    "default_install_directory": "%ProgramFiles%/PawnIO",
+    "expected": [
+      "PawnIOLib.h",
+      "PawnIOLib.dll",
+      "PawnIOUtil.exe",
+      "uninstall.exe"
+    ],
+    "uninstall_registry": "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/PawnIO",
+    "note": "Exact installed files and service path are to be inventoried after an approved installation"
+  },
+  "module": {
+    "release": "0.2.2",
+    "source_commit": "e12a858d952461ee2e919897cacbff7f905fe370",
+    "sha256": "099DC01D6DB97EA997FEC4A461E191CC64B9D7CE47C9D2153C451C56C2ADCF50",
+    "rsa4096_signature_verified_offline": true,
+    "signature_matches_published_driver_key": true,
+    "binary_matches_lhm_v0_9_6": true,
+    "license": "LGPL-2.1-or-later",
+    "source_and_headers": "vendor/pawnio-amdfamily17-0.2.2",
+    "driver_binary_contains_verified_public_key": true
+  },
+  "probe": {
+    "path": "monitor-app/src-tauri/target/segments/x86_64-pc-windows-msvc/debug/examples/cpu_temperature_probe.exe",
+    "sha256": "AE6E0A0FEACCA231B393FF21D9D4CF7A787A5C8C4979722A821D27A983C07871",
+    "timeout_seconds": 12,
+    "output_limit_bytes": 16384,
+    "observations": 3,
+    "interval_seconds": 2,
+    "sensor": "CPU control temperature (Tctl), not calibrated Tdie",
+    "supported_cpu_family": "1Ah",
+    "supported_cpu_model": "24h",
+    "operation": "ioctl_read_smn at fixed offset 0x59800, serialized with Global/Access_PCI",
+    "scope": "No MSR write, tuning, SMU mailbox, motherboard/EC/SMBus scan or application history writes",
+    "note": "The SMN read transaction writes its selector at PCI 0x60 before reading data at 0x64"
+  },
+  "existing_installation_before_request": {
+    "service_found": false,
+    "uninstall_key_found": false,
+    "program_files_directory_found": false
+  },
+  "validation": {
+    "targeted_unit_check_passed": true,
+    "strict_clippy_passed": true,
+    "windows_probe_build_passed": true,
+    "ordinary_run_result": "component_missing, all temperatures null",
+    "actual_cpu_temperature_verified": true,
+    "full_test_suites_rerun": 0
+  },
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/cpu_read.rs",
+      "sha256": "e710b1d171b39c16ddb3e9cbfab57890637b82aec95658e57acdd476c9ffbbdd"
+    },
+    {
+      "path": "monitor-app/src-tauri/examples/cpu_temperature_probe.rs",
+      "sha256": "ff8fa258c8c13bb6c3c5d1627fd03b735fa646dd445fa740959f70944f05ffd3"
+    },
+    {
+      "path": "monitor-app/src-tauri/resources/pawnio/AMDFamily17.bin",
+      "sha256": "099dc01d6db97ea997fec4a461e191cc64b9d7ce47c9d2153c451c56c2adcf50"
+    },
+    {
+      "path": "vendor/pawnio-amdfamily17-0.2.2/AMDFamily17.p",
+      "sha256": "852ffd303272d7118bb269e462c5d1a9631c47e7fda1170fb298e84b948ed860"
+    }
+  ],
+  "installation_result": {
+    "installer_exit_code": 0,
+    "restart_requested": false,
+    "install_location": "C:\\Program Files\\PawnIO",
+    "driver_path": "C:\\WINDOWS\\System32\\DriverStore\\FileRepository\\pawnio.inf_amd64_a72a2f969b8b7496\\PawnIO.sys",
+    "driver_sha256": "FCA6E7D58B0CF38DBB913A2B9E532F48629145D395F454B16A9F58E97B8D3940",
+    "service_state": "Running",
+    "uninstall_string": "\"C:\\Program Files\\PawnIO\\uninstall.exe\" -uninstall",
+    "files": [
+      {
+        "Name": "PawnIOLib.dll",
+        "Length": 39248
+      },
+      {
+        "Name": "PawnIOLib.h",
+        "Length": 4350
+      },
+      {
+        "Name": "PawnIOUtil.exe",
+        "Length": 316088
+      },
+      {
+        "Name": "uninstall.exe",
+        "Length": 3410960
+      }
+    ]
+  }
+}

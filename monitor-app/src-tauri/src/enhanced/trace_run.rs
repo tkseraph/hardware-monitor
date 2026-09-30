@@ -1,9 +1,11 @@
-//! Limited diagnostic collector. No automatic privilege change, UI attachment or history writes.
+//! Owned ETW collector with bounded ingress, explicit cancellation and quality snapshots.
 use super::{
     clock_bridge::HostClock,
     disk_io::Limits,
+    disk_snapshot::{Reason, Snapshot, State},
     enumeration,
     etw_decode::{self, Event, QpcClock},
+    live_identity::Resolver,
     pipeline::{Fault, Phase, Pipeline},
     probe::{Properties, Session},
 };
@@ -89,11 +91,17 @@ unsafe extern "system" fn callback(record: *mut EVENT_RECORD) {
         }
     }
 }
-fn transfer(receiver: &mpsc::Receiver<Event>, pipeline: &mut Pipeline, epoch: u64) -> usize {
+fn transfer(
+    receiver: &mpsc::Receiver<Event>,
+    pipeline: &mut Pipeline,
+    epoch: u64,
+    resolver: &mut Resolver,
+    clock: &HostClock,
+) -> usize {
     let mut count = 0;
     // Bound each drain so a busy disk cannot starve clock checks or the stop deadline.
     for event in receiver.try_iter().take(CAPACITY) {
-        let _ = pipeline.enqueue(epoch, event);
+        let _ = pipeline.enqueue(epoch, resolver.enrich(event, clock));
         count += 1;
     }
     count
@@ -108,15 +116,48 @@ fn final_loss(
     loop_loss || dropped > 0 || decode_errors > 0 || events_lost > 0 || buffers_lost > 0
 }
 pub fn run(name: &str) -> Value {
+    let mut report = collect(
+        name,
+        &AtomicBool::new(false),
+        Some(Duration::from_secs(10)),
+        |_| {},
+    );
+    if let Some(report) = report.as_object_mut() {
+        report.insert(
+            "scope".into(),
+            json!("diagnostic subset only; no per-process output or UI publication"),
+        );
+    }
+    report
+}
+/// The callback replaces one latest snapshot; it must not block on UI, IPC or disk writes.
+pub fn collect(
+    name: &str,
+    cancelled: &AtomicBool,
+    budget: Option<Duration>,
+    mut publish: impl FnMut(Snapshot),
+) -> Value {
+    let session_id = name.rsplit('-').next().unwrap_or_default();
+    let mut sequence = 0u64;
+    let mut emit = |mut value: Snapshot| {
+        sequence = sequence.saturating_add(1);
+        value.header.sequence = sequence;
+        publish(value);
+    };
     if !name
         .strip_prefix("HardwareMonitor-E2-")
+        .or_else(|| name.strip_prefix("HardwareMonitor-ProcessDisk-"))
         .is_some_and(|s| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit()))
     {
         return json!({"state":"invalid_name"});
     }
+    emit(Snapshot::empty(session_id, State::WarmingUp, Reason::None));
     let mut clock = match HostClock::new() {
         Ok(c) => c,
-        Err(_) => return json!({"state":"clock_error"}),
+        Err(_) => {
+            emit(Snapshot::empty(session_id, State::Error, Reason::Clock));
+            return json!({"state":"clock_error"});
+        }
     };
     let mut properties = Properties::new(name);
     properties.properties.EnableFlags = EVENT_TRACE_FLAG_DISK_IO
@@ -132,8 +173,18 @@ pub fn run(name: &str) -> Value {
         )
     };
     if start != 0 {
+        emit(Snapshot::empty(
+            session_id,
+            State::Error,
+            if start == 5 {
+                Reason::PermissionRequired
+            } else {
+                Reason::StartFailed
+            },
+        ));
         return json!({"started":false,"start_code":start});
     }
+    let deadline = budget.map(|d| Instant::now() + d);
     let mut session = Session {
         handle,
         properties,
@@ -162,6 +213,7 @@ pub fn run(name: &str) -> Value {
     log.Anonymous2.EventRecordCallback = Some(callback);
     let trace = unsafe { OpenTraceW(&mut log) };
     if trace.Value == u64::MAX {
+        emit(Snapshot::empty(session_id, State::Error, Reason::OpenTrace));
         return json!({"started":true,"state":"open_trace_error","stop_code":session.stop()});
     }
     let keep_alive = context.clone();
@@ -171,6 +223,7 @@ pub fn run(name: &str) -> Value {
         code
     });
     let mut pipeline = Pipeline::new(Limits::default(), CAPACITY);
+    let mut resolver = Resolver::new(Limits::default());
     let at = clock.now_ns().unwrap_or(0);
     let epoch = pipeline.begin_baseline(at).unwrap();
     let candidate = enumeration::capture(&mut clock, Limits::default());
@@ -188,20 +241,21 @@ pub fn run(name: &str) -> Value {
     let mut write_bytes = 0u64;
     let mut last_end = 0;
     let mut loss_seen = false;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
+    while !cancelled.load(Ordering::SeqCst) && deadline.is_none_or(|d| Instant::now() < d) {
         if clock.confirm().is_err() {
             let _ = pipeline.report_fault(epoch, Fault::Clock);
+            emit(Snapshot::empty(session_id, State::Error, Reason::Clock));
             break;
         }
         let now = match clock.now_ns() {
             Ok(n) => n,
             Err(_) => {
                 let _ = pipeline.report_fault(epoch, Fault::Clock);
+                emit(Snapshot::empty(session_id, State::Error, Reason::Clock));
                 break;
             }
         };
-        transfer(&receiver, &mut pipeline, epoch);
+        transfer(&receiver, &mut pipeline, epoch, &mut resolver, &clock);
         let query = unsafe {
             ControlTraceW(
                 session.handle,
@@ -223,16 +277,27 @@ pub fn run(name: &str) -> Value {
             .as_ref()
             .is_some_and(|c| now.saturating_sub(c.end_ns) >= 2_000_000_000)
         {
-            let c = pending.take().unwrap();
+            let mut c = pending.take().unwrap();
             last_end = c.end_ns;
-            let _ = pipeline.install_candidate(epoch, &c);
+            if pipeline.install_candidate(epoch, &c).is_ok() {
+                resolver.adopt(&mut c);
+            }
         }
         let watermark = now.saturating_sub(2_000_000_000);
         if watermark >= last_end.saturating_add(1_000_000_000) {
             if pipeline.phase() == Phase::Ready {
                 match pipeline.window(watermark) {
                     Ok(output) => {
-                        windows += 1;
+                        if output.window.ready {
+                            windows += 1;
+                        } else {
+                            rejected_windows += 1;
+                        }
+                        emit(Snapshot::window(
+                            session_id,
+                            &output.window,
+                            resolver.statistics.clone(),
+                        ));
                         for row in output.window.rows {
                             read_bytes = read_bytes.saturating_add(row.read_bytes);
                             write_bytes = write_bytes.saturating_add(row.write_bytes);
@@ -243,6 +308,17 @@ pub fn run(name: &str) -> Value {
             }
             last_end = watermark;
         }
+        if let Phase::Invalid(fault) = pipeline.phase() {
+            let reason = match fault {
+                Fault::Clock => Reason::Clock,
+                Fault::EventsLost | Fault::Decode => Reason::Loss,
+                Fault::BaselineInvalid => Reason::Baseline,
+                _ => Reason::Pipeline,
+            };
+            emit(Snapshot::empty(session_id, State::Error, reason));
+            break;
+        }
+        resolver.reap(watermark, &clock);
         std::thread::sleep(Duration::from_millis(100));
     }
     let phase = format!("{:?}", pipeline.phase());
@@ -270,8 +346,17 @@ pub fn run(name: &str) -> Value {
         session.properties.properties.EventsLost,
         session.properties.properties.RealTimeBuffersLost,
     );
+    if stop != 0 || consumer.is_none() {
+        emit(Snapshot::empty(
+            session_id,
+            State::Error,
+            Reason::CleanupUnconfirmed,
+        ));
+    } else if !matches!(phase.as_str(), value if value.starts_with("Invalid")) {
+        emit(Snapshot::empty(session_id, State::Disabled, Reason::None));
+    }
     let schemas:Vec<_>=context.error_schemas.lock().map(|s|s.iter().map(|(&(provider,opcode,version),&count)|json!({"provider_family":provider,"opcode":opcode,"version":version,"count":count})).collect()).unwrap_or_default();
-    json!({"started":true,"start_code":start,"decode_error_schemas":schemas,"stop_code":stop,"close_code":close,"consumer_code":consumer,"consumer_joined":consumer.is_some(),"phase_before_stop":phase,"coverage":coverage,"decoded_events":context.decoded.load(Ordering::Relaxed),"decode_errors":context.errors.load(Ordering::Relaxed),"queue_dropped":context.dropped.load(Ordering::Relaxed),"events_lost":session.properties.properties.EventsLost,"buffers_lost":session.properties.properties.RealTimeBuffersLost,"observed_ready_windows":windows,"rejected_windows":rejected_windows,"observed_subset_read_bytes":read_bytes,"observed_subset_write_bytes":write_bytes,"loss_observed":final_loss,"loss_observed_during_loop":loss_seen,"final_counters_complete":consumer.is_some(),"shutdown_ignored":context.shutdown_ignored.load(Ordering::Relaxed),"shutdown_drained":shutdown_drained,"rundown_ignored":context.rundown_ignored.load(Ordering::Relaxed),"prebaseline_ignored":prebaseline_ignored,"systemwide_stream_ready":false,"pipeline_stopped":true,"scope":"diagnostic subset only; no per-process output or UI publication"})
+    json!({"started":true,"start_code":start,"initiation_identities_resolved":resolver.statistics.resolved,"initiation_identities_unavailable":resolver.statistics.unavailable,"identity_capacity_rejected":resolver.statistics.capacity_rejected,"identity_unavailable_reasons":resolver.statistics,"decode_error_schemas":schemas,"stop_code":stop,"close_code":close,"consumer_code":consumer,"consumer_joined":consumer.is_some(),"phase_before_stop":phase,"coverage":coverage,"decoded_events":context.decoded.load(Ordering::Relaxed),"decode_errors":context.errors.load(Ordering::Relaxed),"queue_dropped":context.dropped.load(Ordering::Relaxed),"events_lost":session.properties.properties.EventsLost,"buffers_lost":session.properties.properties.RealTimeBuffersLost,"observed_ready_windows":windows,"rejected_windows":rejected_windows,"observed_subset_read_bytes":read_bytes,"observed_subset_write_bytes":write_bytes,"loss_observed":final_loss,"loss_observed_during_loop":loss_seen,"final_counters_complete":consumer.is_some(),"shutdown_ignored":context.shutdown_ignored.load(Ordering::Relaxed),"shutdown_drained":shutdown_drained,"rundown_ignored":context.rundown_ignored.load(Ordering::Relaxed),"prebaseline_ignored":prebaseline_ignored,"systemwide_stream_ready":false,"pipeline_stopped":true,"scope":"verified subset; observer receives quality-gated windows; no history writes"})
 }
 #[cfg(test)]
 mod tests {

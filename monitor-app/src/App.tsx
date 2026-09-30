@@ -2,8 +2,11 @@ import { useLanguage } from "./language-hook";
 import { HistoryNotice } from "./HistoryNotice";
 import type { HistoryView } from "./history-view";
 import { temperatureSegments } from "./history-data";
+import {GpuTemperature} from './GpuTemperature';
+import {ProcessDiskControls} from './ProcessDiskControls';
+import {CpuTemperature} from './CpuTemperature';
 import { WindowsStorage } from './WindowsStorage';
-import type { CpuInfo, MemoryInfo, GpuInfo, DiskInfo, DiskThroughput, ProcessInfo, ProcessPage, ProcessSortKey, PhysicalDisk, SystemInfo, SystemStatus } from './hardware';
+import type { CpuInfo, MemoryInfo, GpuInfo, DiskInfo, DiskThroughput, ProcessInfo, ProcessPage, ProcessDiskView, ProcessSortKey, PhysicalDisk, SystemInfo, SystemStatus } from './hardware';
 import { sourceMessage, freshnessThreshold, type SourceState } from './source-state';
 import type { RuntimeInfo } from './runtime-info';
 import { orderOverviewDisks } from "./storage-order";
@@ -25,6 +28,7 @@ Object.assign(translations, {
   "Quit application": "退出软件",
   "Failed to quit": "退出失败，请重试",
   "Windows process storage I/O and process termination are not implemented. Memory is working set; CPU is normalized to the whole machine.": "Windows 进程存储读写和结束进程尚未实现。内存显示工作集，CPU 按整机计算能力归一化。",
+  "Windows process termination is not implemented. Memory is working set; CPU is normalized to the whole machine.": "Windows 结束进程尚未实现。内存显示工作集，CPU 按整机计算能力归一化。",
   "Windows launch at login is not implemented.": "Windows 登录时启动尚未实现。",
 });
 function useText() { const lang = useContext(LanguageContext); return (text: string) => lang === "zh" ? translations[text] ?? text : text; }
@@ -147,9 +151,9 @@ function App() {
         {!systemInfo && currentPage !== "settings" && <section className="empty-panel"><div className="empty-icon"><Icon name="overview" /></div><h3>{zh ? (isTauri() ? "正在连接本机采集器" : "在桌面应用中查看实时数据") : (isTauri() ? "Connecting to collectors" : "Live metrics need the desktop app")}</h3><p>{zh ? "硬件指标由本机原生接口提供。未连接采集器时，不显示模拟读数。" : "Metrics come from native system APIs. No simulated readings are displayed."}</p><div className="empty-grid">{pages.slice(1,5).map(([id,cn,en,icon]) => <button key={id} onClick={() => setCurrentPage(id)}><span><Icon name={icon} /></span><strong>{zh ? cn : en}</strong><b>—</b><small>{zh ? "等待真实数据" : "Awaiting real data"}</small></button>)}</div></section>}
 
         {currentPage === "overview" && systemInfo && <OverviewPage systemInfo={systemInfo} onStorageDetails={() => setCurrentPage("disk")} />}
-        {currentPage === "cpu" && systemInfo && (systemInfo.cpu ? <CpuPage cpu={systemInfo.cpu} /> : <UnavailableCard kind="cpu" state={systemInfo.source_states.cpu} />)}
+        {currentPage === "cpu" && systemInfo && (systemInfo.cpu ? <CpuPage cpu={systemInfo.cpu} windows={runtime?.platform === 'windows'} /> : <UnavailableCard kind="cpu" state={systemInfo.source_states.cpu} />)}
         {currentPage === "memory" && systemInfo && (systemInfo.memory ? <MemoryPage memory={systemInfo.memory} /> : <UnavailableCard kind="memory" state={systemInfo.source_states.memory} />)}
-        {currentPage === "gpu" && systemInfo && (systemInfo.gpus.length ? systemInfo.gpus.map(gpu => <GpuPage key={gpu.object_id} gpu={gpu} />) : <UnavailableCard kind="gpu" state={systemInfo.source_states.gpu} />)}
+        {currentPage === "gpu" && systemInfo && (systemInfo.gpus.length ? systemInfo.gpus.map(gpu => <GpuPage key={gpu.object_id} gpu={gpu} temperatureState={systemInfo.source_states.gpu_temperature} />) : <UnavailableCard kind="gpu" state={systemInfo.source_states.gpu} />)}
         {currentPage === "disk" && systemInfo && (systemInfo.windows_storage ? <WindowsStorage snapshot={systemInfo.windows_storage} throughput={systemInfo.windows_disk_throughput} english={!zh} details intervalMs={runtime?.effective_interval_ms}/> : systemInfo.source_states.storage === "ok" ? <DiskPage disks={systemInfo.disks} throughput={systemInfo.disk_throughput} /> : <UnavailableCard kind="disk" state={systemInfo.source_states.storage} />)}
         {currentPage === "processes" && isTauri() && runtime?.primary_instance && <ProcessesPage />}
         {currentPage === "settings" && <SettingsPage />}
@@ -403,13 +407,15 @@ export function TempSparkline({ historyKey, label }: { historyKey: string; label
   return <TemperatureTrend key={historyKey} history={points} view={view} status={status} label={label} english={language === "en"} />;
 }
 
-function CpuPage({ cpu }: { cpu: CpuInfo }) {
+function CpuPage({ cpu,windows=false }: { cpu: CpuInfo;windows?:boolean }) {
   const t = useText();
+  const english=useContext(LanguageContext)==='en';
   const { points: history, view: historyView, status: histStatus, loaded: histLoaded } = useHistoryQuery("cpu.total_usage", "system", 3600);
 
   return (
     <div>
       <h2>{t("CPU Details")}</h2>
+      {windows&&<CpuTemperature english={english}/>}
       <div className="card">
         <h3>{cpu.name}</h3>
         <div className="info">
@@ -494,7 +500,7 @@ function MemoryPage({ memory }: { memory: MemoryInfo }) {
   );
 }
 
-function GpuPage({ gpu }: { gpu: GpuInfo }) {
+function GpuPage({ gpu,temperatureState }: { gpu: GpuInfo;temperatureState?:SourceState }) {
   const t = useText();
   const zh = useContext(LanguageContext) === "zh";
   const [archive,setArchive]=useState("");
@@ -532,6 +538,8 @@ function GpuPage({ gpu }: { gpu: GpuInfo }) {
           <select aria-label={zh?"GPU 历史连接":"GPU history connection"} value={archive} onChange={e=>setArchive(e.target.value)}><option value="">{zh?"本次连接":"Current connection"}</option>{gpu.windows_memory.history_series.filter(s=>s.uid!==gpu.object_id).map(s=><option key={s.uid} value={s.uid}>{s.name} · {new Date(s.created_at*1000).toLocaleString()}</option>)}</select>
         </> : <p className="note">{t("Unified memory architecture - no separate VRAM")}</p>}
       </div>
+
+      {gpu.windows_memory&&<GpuTemperature gpu={gpu} historyId={archive||gpu.object_id} state={temperatureState} english={!zh}/>}
 
       <div className="card">
         <h3>{t("Usage History (Last Hour)")}</h3>
@@ -648,6 +656,11 @@ function DiskPage({ disks, throughput }: { disks: DiskInfo[]; throughput: DiskTh
 export function ProcessesPage() {
   const t = useText();
   const runtime = useContext(RuntimeContext);
+  const english = useContext(LanguageContext) === "en";
+  const [diskOverride, setDiskOverride] = useState<ProcessDiskView|null>(null);
+  const [pageReceived, setPageReceived] = useState(0);
+  const [tick, setTick] = useState(Date.now());
+  const collectionRevision = useRef(0);
   const [page, setPage] = useState<ProcessPage | null>(null);
   const [sortBy, setSortBy] = useState<ProcessSortKey>("memory");
   const [searchTerm, setSearchTerm] = useState("");
@@ -705,9 +718,11 @@ export function ProcessesPage() {
   useEffect(() => { setPageIndex(0); }, [sortBy, pageSize]);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false, inFlight = false;
     const fetchProcesses = async () => {
-      if (document.hidden || cancelled) return;
+      if (document.hidden || cancelled || inFlight) return;
+      inFlight = true;
+      const revision = collectionRevision.current;
       try {
         const result = await invoke<ProcessPage>("get_processes", {
           search: debouncedSearch || null,
@@ -715,8 +730,10 @@ export function ProcessesPage() {
           offset: pageIndex * pageSize,
           limit: pageSize,
         });
-        if (!cancelled) {
+        if (!cancelled && revision === collectionRevision.current) {
           setPage(result);
+          setDiskOverride(null);
+          setPageReceived(Date.now());
           setLoadError(false);
         }
       } catch (err) {
@@ -724,7 +741,7 @@ export function ProcessesPage() {
           setLoadError(true);
         }
         console.error("Failed to fetch processes:", err);
-      }
+      } finally {inFlight = false;}
     };
 
     fetchProcesses();
@@ -735,6 +752,12 @@ export function ProcessesPage() {
     };
   }, [debouncedSearch, sortBy, pageIndex, pageSize]);
 
+  useEffect(() => {const timer=setInterval(()=>setTick(Date.now()),1000);return()=>clearInterval(timer);},[]);
+  const diskView = diskOverride ?? page?.windows_disk_io ?? null;
+  const diskStale = !diskOverride && diskView?.age_ms != null && diskView.age_ms + Math.max(0,tick-pageReceived) > 5000;
+  const shownDiskView = diskStale && diskView ? {...diskView,state:'stale' as const,known_processes:0} : diskView;
+  const onDiskChanged = (value:ProcessDiskView) => {collectionRevision.current++;setDiskOverride(value);};
+  const ratesUsable = runtime?.platform !== 'windows' || (!loadError && !diskOverride && !diskStale && diskView?.state === 'ready');
   const processes = page?.processes ?? [];
 
   // R8 staleness guard: whenever the visible list, the filter/sort/page, or the
@@ -767,13 +790,14 @@ export function ProcessesPage() {
 
   // R6: unknown rate (None) renders "—"; a never-zero fake is never shown.
   const fmtRate = (proc: ProcessInfo, bps: number | null) =>
-    !proc.io_ok ? t("Unreadable") : bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
+    !ratesUsable ? "—" : !proc.io_ok ? (runtime?.platform === 'windows' ? "—" : t("Unreadable")) : bps === null ? "—" : `${formatBytes(Math.round(bps))}/s`;
   const matched = page?.matched_total ?? 0;
   const totalPages = Math.max(1, Math.ceil(matched / pageSize));
 
   return (
     <div>
       <h2>{t("Process Ranking")}</h2>
+      {runtime?.platform === "windows" && <ProcessDiskControls value={shownDiskView} english={english} onChanged={onDiskChanged}/>}
       <div className="card">
         <div className="controls">
           <input
@@ -800,7 +824,7 @@ export function ProcessesPage() {
         </div>
         {page && (
           <p className="note">
-            {t("Showing")} {processes.length} {t("of")} {matched} {t("matching")} · {page.total_readable} {runtime?.process_disk_io ? t("enumerated processes (system-wide disk I/O)") : t("enumerated processes")}
+            {t("Showing")} {processes.length} {t("of")} {matched} {t("matching")} · {page.total_readable} {runtime?.platform === "macos" && runtime.process_disk_io ? t("enumerated processes (system-wide disk I/O)") : t("enumerated processes")}
           </p>
         )}
         {loadError && <p className="note">{t("Failed to load processes")}</p>}
@@ -818,7 +842,7 @@ export function ProcessesPage() {
           <button ref={endButtonRef} className="danger-button" disabled={!runtime?.terminate_process || !selected || confirming || loadError} onClick={() => selected && setTerm({ phase: "confirming", target: selected })}>{t("End process")}</button>
           <span>{selected ? `${selected.name} · PID ${selected.pid}` : t("Select a process")}</span>
         </div>
-        {runtime?.platform === "windows" && <p className="note">{t("Windows process storage I/O and process termination are not implemented. Memory is working set; CPU is normalized to the whole machine.")}</p>}
+        {runtime?.platform === "windows" && <p className="note">{t("Windows process termination is not implemented. Memory is working set; CPU is normalized to the whole machine.")}</p>}
         {terminationMessage && <p role="status" className="note">{terminationMessage}</p>}
         {confirming && selected && <div className="confirm-panel" role="alertdialog" aria-modal="false" aria-labelledby="end-title" aria-describedby="end-description">
           <h3 id="end-title">{t("End process")}: {selected.name} · PID {selected.pid}</h3>

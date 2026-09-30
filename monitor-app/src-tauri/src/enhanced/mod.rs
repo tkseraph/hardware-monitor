@@ -1,15 +1,28 @@
-//! Infrastructure only. No privileged launch, hardware probe or UI registration.
+//! Enhanced collectors. Privileged sources are started only through explicit controls.
 #[cfg(target_os = "windows")]
 pub mod baseline;
 #[cfg(target_os = "windows")]
 pub mod clock_bridge;
+#[cfg(target_os = "windows")]
+pub mod cpu_read;
+#[cfg(target_os = "windows")]
+pub mod cpu_service;
 pub mod disk_io;
+#[cfg(target_os = "windows")]
+pub mod disk_service;
+pub mod disk_snapshot;
 #[cfg(target_os = "windows")]
 pub mod enumeration;
 pub mod etw_decode;
 pub mod event_order;
 #[cfg(target_os = "windows")]
+pub mod gpu_read;
+#[cfg(target_os = "windows")]
+pub mod gpu_temperature;
+#[cfg(target_os = "windows")]
 pub mod identity;
+#[cfg(target_os = "windows")]
+pub mod live_identity;
 #[cfg(target_os = "windows")]
 pub mod pipe;
 #[cfg(target_os = "windows")]

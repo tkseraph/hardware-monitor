@@ -1,0 +1,84 @@
+{
+  "date": "2026-09-30",
+  "stage": "cpu-temperature-ui-enable-save-chart-stop",
+  "result": "passed_on_observed_machine",
+  "artifact_sha256": "295949CA37FF0095845A6FFDC9D79291FF9E966762C3D74C8E71C186DD0D7842",
+  "observed": {
+    "sensor": "Tctl",
+    "sample_count": 33,
+    "min_c": 67.875,
+    "max_c": 72.625,
+    "sample_span_seconds": 68,
+    "continuous_segments": 1,
+    "unit": "°C",
+    "gpu_temperature_samples_in_same_normal_session": 170
+  },
+  "checks": {
+    "one_user_authorized_enable": true,
+    "fresh_temperature_visible": true,
+    "temperature_saved": true,
+    "uid_matches_anonymous_series": true,
+    "chart_visible_after_stop": true,
+    "stop_cleared_current_value_and_restored_enable": true,
+    "cpu_companion_and_worker_exit_confirmed": true,
+    "isolated_main_and_gpu_workers_exit_confirmed": true,
+    "no_zero_or_invalid_temperature_saved": true,
+    "driver_reinstalled": false,
+    "etw_started": false,
+    "new_tests_added": 0,
+    "existing_targeted_history_check_run": 1,
+    "full_test_suites_rerun": 0
+  },
+  "limitations": [
+    "Actual sample span was 68 seconds due to UI observation/action time, longer than the approximate 20-second estimate",
+    "Driver hang/crash, restart archive selection and re-enable were not exercised in this single run",
+    "No independent Tdie calibration",
+    "Windows installer and macOS build pending"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/cpu_service.rs",
+      "sha256": "b907c91f42ca2bfb68fb67e3a9b7164b3700a41f68d0551a312aca771b274f4b"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/cpu_read.rs",
+      "sha256": "2620501c79d9c5fcd45a5a2b8374e1a641cc837c911ff922cef5b8bcfc611a9b"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/temperature_history.rs",
+      "sha256": "846287ddcb5d84845f5aa1bab8f0a2c885a4967f4da8736e978aaa5c602c5dbe"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/gpu_temperature.rs",
+      "sha256": "7e5916cefc87e1d37e58075c01217ae5af39f33a223f9b78d217d8dcf9df8414"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/storage_service.rs",
+      "sha256": "55528b84a65a2ec71fe1bb4ae557883e38ea6c2a1e1d064b97a1bd912ca12c2e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/lib.rs",
+      "sha256": "f0b372ec3940a299755c910f1cd2c7b1e78967471eb43b3b4ca64176344b4a36"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/main.rs",
+      "sha256": "361e726873717f62a404f68cea766a681451b92c206a9e662d8904042ee7dd34"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/query.rs",
+      "sha256": "594db779c0a5f151dd0022b6d4c39ac1bf46d57481c057be74dc1e53281c9770"
+    },
+    {
+      "path": "monitor-app/src/CpuTemperature.tsx",
+      "sha256": "30f3a154867e93ef86ddd7aaefe31259760b29d5dc84281f8971868464552281"
+    },
+    {
+      "path": "monitor-app/src/App.tsx",
+      "sha256": "539a1712bfed17fcff1e5388aa5ede86d11f2903c3111afe53a015fa97eb92b0"
+    },
+    {
+      "path": "monitor-app/src-tauri/tauri.windows.conf.json",
+      "sha256": "52edfe0df02b9cf1e0559b8ddf1a3534e3381d8bd080b925260a762ea2f3f2dd"
+    }
+  ]
+}

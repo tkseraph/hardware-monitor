@@ -24,7 +24,8 @@ pub struct ProcessInfo {
     pub name: String,
     pub memory_bytes: Option<u64>,
     pub cpu_usage: Option<f32>,
-    /// Cumulative bytes read/written since process start (system-wide).
+    /// Mac cumulative bytes since process start. Windows ETW does not provide
+    /// lifetime totals; these compatibility fields remain unused placeholders.
     pub disk_read_bytes: u64,
     pub disk_write_bytes: u64,
     /// Bytes/sec since the previous scan, if we have a baseline for this
@@ -50,6 +51,8 @@ pub struct ProcessPage {
     pub limit: usize,
     /// Unix seconds of this scan.
     pub observed_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windows_disk_io: Option<crate::enhanced::disk_snapshot::View>,
 }
 
 #[derive(Clone, Copy)]
@@ -238,6 +241,7 @@ impl ProcessCollector {
             offset: 0,
             limit: usize::MAX,
             observed_at,
+            windows_disk_io: None,
         }
     }
 }

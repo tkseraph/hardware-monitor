@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-30",
+  "result": {
+    "observations": [
+      {
+        "celsius": null,
+        "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+        "error_code": 2,
+        "family": 26,
+        "model": 36,
+        "sensor": "Tctl",
+        "state": "component_missing"
+      },
+      {
+        "celsius": null,
+        "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+        "error_code": 2,
+        "family": 26,
+        "model": 36,
+        "sensor": "Tctl",
+        "state": "component_missing"
+      },
+      {
+        "celsius": null,
+        "cpu_name": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+        "error_code": 2,
+        "family": 26,
+        "model": 36,
+        "sensor": "Tctl",
+        "state": "component_missing"
+      }
+    ],
+    "state": "completed"
+  },
+  "actual_temperature_verified": false,
+  "probe_sha256": "AE6E0A0FEACCA231B393FF21D9D4CF7A787A5C8C4979722A821D27A983C07871"
+}

@@ -192,11 +192,15 @@ pub fn stop() {
         c.wake.notify_one();
     }
 }
-fn launch(name: String, nonce: String) -> io::Result<(OwnedHandle, u32)> {
+pub(crate) fn launch_for(
+    flag: &str,
+    name: String,
+    nonce: String,
+) -> io::Result<(OwnedHandle, u32)> {
     let exe = std::env::current_exe()?;
     let file: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
     let verb: Vec<u16> = "runas".encode_utf16().chain(Some(0)).collect();
-    let args: Vec<u16> = format!("{FLAG} {name} {} {nonce}", std::process::id())
+    let args: Vec<u16> = format!("{flag} {name} {} {nonce}", std::process::id())
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -251,7 +255,7 @@ async fn run(c: Arc<Control>) -> io::Result<()> {
     let (name, mut server) = pipe::create()?;
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let launch_nonce = nonce.clone();
-    let (handle, pid) = tokio::task::spawn_blocking(move || launch(name, launch_nonce))
+    let (handle, pid) = tokio::task::spawn_blocking(move || launch_for(FLAG, name, launch_nonce))
         .await
         .map_err(io::Error::other)??;
     let result=async {
@@ -277,7 +281,7 @@ async fn run(c: Arc<Control>) -> io::Result<()> {
             }
             if !c.stop.load(Ordering::SeqCst){
                 let observed=next.observed_at as i64;*c.view.lock().unwrap()=next;
-                if !samples.is_empty(){super::temperature_history::enqueue(super::temperature_history::Batch{session:session.clone(),sequence,observed,samples,lost:c.history_lost.clone()});}
+                if !samples.is_empty(){super::temperature_history::enqueue(super::temperature_history::Batch{metric:"disk.temperature",session:session.clone(),sequence,observed,samples,lost:c.history_lost.clone()});}
             }
             tokio::select!{_=tokio::time::sleep(Duration::from_secs(5))=>{},_=c.wake.notified()=>break};
         }

@@ -1,0 +1,94 @@
+{
+  "date": "2026-09-30",
+  "stage": "process disk quality, bounded transport, companion and UI implemented; privileged UI validation pending",
+  "build": {
+    "target": "x86_64-pc-windows-msvc",
+    "profile": "debug",
+    "bundled": false,
+    "passed": true,
+    "sha256": "7D48B3D88FBB4FD0CB8BF48926694BD121204FD39EAB9314D0AB6834AF742ABE"
+  },
+  "checks": {
+    "new_boundary_tests": 2,
+    "targeted_disk_tests_passed": 10,
+    "full_suite_run": false,
+    "clippy_passed": true,
+    "typescript_passed": true,
+    "diff_check_passed": true
+  },
+  "ordinary_ui": {
+    "checked": true,
+    "artifact_sha256": "5DCE0BB417F49BAE735D996CA443BD207D5DC310A626A9F457F4D26553F1FEF0",
+    "isolated_data": true,
+    "collection_state": "disabled",
+    "controls_visible": true,
+    "scope_note_visible": true,
+    "cpu_memory_pagination_working": true,
+    "disk_rates": "unavailable dash",
+    "enabled_privileged_collection": false,
+    "own_app_exited": true,
+    "own_app_processes_remaining": 0,
+    "own_etw_sessions_remaining": 0,
+    "final_build_changes": "exit code confirmation, unknown-value wording and diagnostic scope; rebuilt without repeating UI"
+  },
+  "limits": {
+    "process_rows": 4096,
+    "rows_per_chunk": 128,
+    "frame_bytes": 65536,
+    "snapshot_receive_seconds": 4,
+    "stale_seconds": 5,
+    "command_lease_seconds": 10,
+    "validation_collection_budget_seconds": 20,
+    "native_queue_capacity": 8192
+  },
+  "privileges": {
+    "new_admin_run_performed": false,
+    "driver_install_performed": false,
+    "service_registration_performed": false,
+    "cpu_storage_enhanced_enabled": false,
+    "prior_single_10_second_grant_already_consumed": true
+  },
+  "latest_ui_attempt": {
+    "single_20_second_run_authorized": true,
+    "ordinary_isolated_instance_launched": true,
+    "interrupted_by_user_escape_before_collection": true,
+    "new_admin_etw_session_started": false,
+    "validation_result": "not_run"
+  },
+  "remaining": [
+    "one new-authorized live UI collection and stop verification",
+    "independent physical disk counter comparison",
+    "hard-crash residual session recovery",
+    "protected installation, signing, upgrade and uninstall delivery"
+  ],
+  "source_sha256": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/disk_snapshot.rs",
+      "sha256": "8B81396DFFC2B8932650BE457FBD73DAA7DBB4B0725DFDED405F0D06F1D6F86D"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/disk_service.rs",
+      "sha256": "A3C56A1CE74F03B565BBBD12539FFD2A62EDD10FE03D2015C1B6FA10177F5364"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/live_identity.rs",
+      "sha256": "9BAADC6CBB83EBEF8673C2079C871A50796EF2AB7A02C32C334EAF88EC6C35C1"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/trace_run.rs",
+      "sha256": "5FC555C6575A3E57A52344CCC862686F56C86A5659889599FAC0AF82C96BC1D0"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/processes.rs",
+      "sha256": "B28316FC3AF584806E96D6E82C302C640D230D596923DE4C5C59856FE64E45E4"
+    },
+    {
+      "path": "monitor-app/src/ProcessDiskControls.tsx",
+      "sha256": "5193A18D2A3432DCC5624174A3C98FB8B92B80854D65F0C698474A504078B166"
+    },
+    {
+      "path": "monitor-app/src/App.tsx",
+      "sha256": "FD1495640C3A77BA1255A7412DD1E2EE0E076D5E09D1467646903DD5D184F55C"
+    }
+  ]
+}

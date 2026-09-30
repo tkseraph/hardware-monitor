@@ -23,6 +23,7 @@ export interface GpuInfo {
   memory_used_bytes: number;
   memory_allocated_bytes: number | null;
   windows_memory?: { dedicated_used_bytes: number; shared_used_bytes: number; unverified_adapter_count: number; history_series: import("./windows-storage").DiskHistorySeries[] } | null;
+  windows_temperature?: { object_id: string; edge_celsius: number | null; state: SourceState } | null;
 }
 
 export interface DiskInfo {
@@ -66,6 +67,18 @@ export interface ProcessPage {
   offset: number;
   limit: number;
   observed_at: number;
+  windows_disk_io?: ProcessDiskView | null;
+}
+
+export interface ProcessDiskView {
+  state: 'disabled'|'starting'|'warming_up'|'ready'|'incomplete'|'stale'|'stopping'|'error';
+  reason: string;
+  verified_subset_only: boolean;
+  window_ms: number|null;
+  age_ms: number|null;
+  known_processes: number;
+  quality: {unattributed_operations:number;unattributed_bytes:number;lost_events:number;rejected_events:number;expired_operations:number};
+  identities: {resolved:number;unavailable:number;open_failed:number;lifetime_unverified:number;clock_unverified:number;capacity_rejected:number};
 }
 
 export type ProcessSortKey = "memory" | "cpu" | "diskread" | "diskwrite";

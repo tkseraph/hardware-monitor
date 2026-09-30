@@ -328,6 +328,7 @@ fn sample_gpu() -> Result<GpuInfo, String> {
         memory_used_bytes,
         memory_allocated_bytes: Some(memory_allocated_bytes),
         windows_memory: None,
+        windows_temperature: None,
     })
 }
 

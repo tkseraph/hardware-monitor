@@ -66,24 +66,6 @@ impl OrderedEvents {
         self.watermark = Some(watermark);
         Ok(result)
     }
-    #[cfg(target_os = "windows")]
-    pub(crate) fn lifecycle_changed(&self, start: u64, end: u64) -> bool {
-        use super::etw_decode::{Body, Lifecycle};
-        self.pending.values().any(|e| {
-            e.at_ns >= start
-                && e.at_ns <= end
-                && matches!(
-                    e.body,
-                    Body::Process {
-                        phase: Lifecycle::Start | Lifecycle::End,
-                        ..
-                    } | Body::Thread {
-                        phase: Lifecycle::Start | Lifecycle::End,
-                        ..
-                    }
-                )
-        })
-    }
     pub fn reset(&mut self) {
         self.pending.clear();
         self.watermark = None;

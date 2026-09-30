@@ -13,6 +13,7 @@ pub struct Sample {
     pub celsius: f64,
 }
 pub struct Batch {
+    pub metric: &'static str,
     pub session: String,
     pub sequence: u64,
     pub observed: i64,
@@ -52,8 +53,9 @@ pub fn enqueue(batch: Batch) {
         let spawned = std::thread::Builder::new()
             .name("monitor-temperature-history".into())
             .spawn(move || {
-                let mut continuity = Continuity::default();
+                let mut sources = BTreeMap::<&'static str, Continuity>::new();
                 while let Ok(batch) = receiver.recv() {
+                    let continuity = sources.entry(batch.metric).or_default();
                     for sample in batch.samples {
                         let segment = continuity.segment(
                             &batch.session,
@@ -63,12 +65,7 @@ pub fn enqueue(batch: Batch) {
                         );
                         if crate::history::record_segment_batch(
                             batch.observed,
-                            &[(
-                                "disk.temperature",
-                                sample.uid.as_str(),
-                                sample.celsius,
-                                "°C",
-                            )],
+                            &[(batch.metric, sample.uid.as_str(), sample.celsius, "°C")],
                             Some(&segment),
                         )
                         .is_ok()
@@ -102,5 +99,35 @@ mod tests {
         assert_ne!(c.segment("session", 3, 1010, "disk-a"), first);
         assert_ne!(c.segment("session", 2, 1005, "disk-b"), first);
         assert_ne!(c.segment("restarted", 2, 1005, "disk-a"), first);
+        // The CPU and disk share one queue but keep independent continuity state.
+        let mut sources = BTreeMap::<&'static str, Continuity>::new();
+        for metric in ["disk.temperature", "cpu.temperature.tctl"] {
+            let c = sources.entry(metric).or_default();
+            let segment = c.segment(metric, 1, 1000, "same-object");
+            c.saved("same-object".into(), 1, 1000, segment);
+        }
+        let disk = sources["disk.temperature"].saved["same-object"].2.clone();
+        let cpu = sources["cpu.temperature.tctl"].saved["same-object"]
+            .2
+            .clone();
+        assert_ne!(disk, cpu);
+        assert_eq!(
+            sources.get_mut("disk.temperature").unwrap().segment(
+                "disk.temperature",
+                2,
+                1005,
+                "same-object"
+            ),
+            disk
+        );
+        assert_eq!(
+            sources.get_mut("cpu.temperature.tctl").unwrap().segment(
+                "cpu.temperature.tctl",
+                2,
+                1002,
+                "same-object"
+            ),
+            cpu
+        );
     }
 }

@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-30",
+  "stage": "process-disk-live-identity-preparation",
+  "artifact_sha256": "2E15F0A9DD0196A3771A8B367096CF64EDECF37778AF7B503AF35FED1EC1806A",
+  "normal_result": {
+    "recovery_stop_code": null,
+    "result": {
+      "start_code": 5,
+      "started": false
+    }
+  },
+  "checks": {
+    "pipeline_checks_passed": 6,
+    "native_identity_check_passed": 1,
+    "strict_clippy_passed": true,
+    "probe_build_passed": true,
+    "full_test_suites_rerun": 0,
+    "new_tests_added": 2,
+    "elevated_run_this_stage": false,
+    "process_ranking_enabled": false
+  },
+  "scope": [
+    "Initiation identity verified against held thread and process lifetime",
+    "Unknown initiation cannot fall back to a stale baseline mapping",
+    "Unrelated lifecycle retires its address only",
+    "Unknown completion keeps the current window incomplete and allows a later clean window",
+    "Loss, timing faults, ambiguity and structural limits still revoke the baseline"
+  ],
+  "limitations": [
+    "Current source remains a verified subset",
+    "Very short-lived threads may be unavailable before buffered delivery",
+    "Real ETW quality and rate windows not yet verified after this change"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/live_identity.rs",
+      "sha256": "551ceb4925bf42d13851ba8f3e4bd2a895fceb91ee87b0ce543ceb8ec7575a11"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/identity.rs",
+      "sha256": "b9a71d644c23d33990ff3ffaca93cd0cf570b5467dc1c7da5431fd13dbb5fb42"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/pipeline.rs",
+      "sha256": "5413bfccb42e755eab487bb28e77ff808c5151ab98fd611ed247b755c0a119a5"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/disk_io.rs",
+      "sha256": "c69a4c2ebde0cbe0584e3adc440dbf06c70c390785f6d9fcb26bc50c356c6fae"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/etw_decode.rs",
+      "sha256": "6cb99455e31150a41a8e34b99e5230bd210afadee14433726b04d4a393bea7cd"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/trace_run.rs",
+      "sha256": "ce6545bc273d4653f749a879ac8382af688a296d149e2aa7dd126cae577e6c07"
+    }
+  ]
+}

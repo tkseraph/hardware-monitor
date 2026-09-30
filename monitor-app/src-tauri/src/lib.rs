@@ -61,6 +61,9 @@ async fn get_processes(
         .await
         .map_err(|_| "process worker failed".to_string())??;
 
+    #[cfg(target_os = "windows")]
+    enhanced::disk_service::merge(&mut page);
+
     // Filter by name or PID substring over the full set.
     if let Some(q) = search
         .as_deref()
@@ -339,6 +342,66 @@ async fn start_storage_enhanced() -> Result<(), String> {
         Err("unsupported".into())
     }
 }
+
+#[tauri::command]
+async fn start_process_disk(validation: Option<bool>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        enhanced::disk_service::start(validation.unwrap_or(false)).await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = validation;
+        Err("unsupported".into())
+    }
+}
+#[tauri::command]
+fn stop_process_disk() {
+    #[cfg(target_os = "windows")]
+    enhanced::disk_service::stop();
+}
+#[tauri::command]
+fn get_process_disk() -> enhanced::disk_snapshot::View {
+    #[cfg(target_os = "windows")]
+    {
+        enhanced::disk_service::status()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        enhanced::disk_snapshot::View::state(
+            enhanced::disk_snapshot::State::Disabled,
+            enhanced::disk_snapshot::Reason::None,
+        )
+    }
+}
+
+#[tauri::command]
+async fn start_cpu_enhanced() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        enhanced::cpu_service::start().await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("unsupported".into())
+    }
+}
+#[tauri::command]
+fn stop_cpu_enhanced() {
+    #[cfg(target_os = "windows")]
+    enhanced::cpu_service::stop();
+}
+#[tauri::command]
+fn get_cpu_enhanced() -> serde_json::Value {
+    #[cfg(target_os = "windows")]
+    {
+        serde_json::to_value(enhanced::cpu_service::status()).unwrap()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        serde_json::json!({"state":"unsupported","observed_at":0,"celsius":null,"history_series":[],"history_uid":null,"history_lost":0,"reason":"unsupported"})
+    }
+}
 #[tauri::command]
 fn stop_storage_enhanced() {
     #[cfg(target_os = "windows")]
@@ -457,6 +520,7 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 let root = &paths.as_ref().ok_or("Windows data directory unavailable")?.root;
+                enhanced::cpu_service::initialize(root.clone());
                 if cfg!(debug_assertions) {
                     app.handle().plugin(tauri_plugin_log::Builder::default()
                         .targets([tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
@@ -572,6 +636,12 @@ pub fn run() {
       }
         })
         .invoke_handler(tauri::generate_handler![
+            start_process_disk,
+            stop_process_disk,
+            get_process_disk,
+            start_cpu_enhanced,
+            stop_cpu_enhanced,
+            get_cpu_enhanced,
             start_storage_enhanced,
             stop_storage_enhanced,
             get_storage_enhanced,
@@ -595,6 +665,10 @@ pub fn run() {
             if let tauri::RunEvent::Exit = _event {
                 #[cfg(target_os="windows")]
                 enhanced::storage_service::stop();
+                #[cfg(target_os="windows")]
+                enhanced::cpu_service::stop();
+                #[cfg(target_os="windows")]
+                enhanced::disk_service::stop();
                 sampler::shutdown();
             }
             #[cfg(target_os = "macos")]

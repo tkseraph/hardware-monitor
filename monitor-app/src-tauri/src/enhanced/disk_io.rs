@@ -24,7 +24,8 @@ struct Pending {
     owner: ProcessKey,
     direction: Direction,
 }
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Quality {
     pub unattributed_operations: u64,
     pub unattributed_bytes: u64,
@@ -33,8 +34,9 @@ pub struct Quality {
     pub expired_operations: u64,
 }
 impl Quality {
-    fn complete(&self) -> bool {
+    pub fn complete(&self) -> bool {
         self.unattributed_operations == 0
+            && self.unattributed_bytes == 0
             && self.lost_events == 0
             && self.rejected_events == 0
             && self.expired_operations == 0
@@ -158,6 +160,35 @@ impl Accumulator {
         }
         self.processes.insert(key.pid, Process { key, since: at });
         true
+    }
+    pub fn identity_valid(&self) -> bool {
+        self.ready
+    }
+    pub fn unverified_begin(&mut self, at: u64, request: u64) {
+        if !self.time(at) {
+            return;
+        }
+        if self.pending.contains_key(&request) {
+            self.lost(0);
+            self.reject();
+        }
+    }
+    /// Retire only a lifecycle address; pending operations retain their pinned owner.
+    pub fn retire_process(&mut self, at: u64, pid: u32) {
+        if !self.time(at) {
+            return;
+        }
+        if let Some(old) = self.processes.remove(&pid) {
+            self.threads.retain(|_, p| *p != old.key);
+        }
+    }
+    pub fn retire_thread(&mut self, at: u64, tid: u32, pid: u32) {
+        if !self.time(at) {
+            return;
+        }
+        if self.threads.get(&tid).is_some_and(|p| p.pid == pid) {
+            self.threads.remove(&tid);
+        }
     }
     pub fn process_end(&mut self, at: u64, key: ProcessKey) {
         if !self.time(at) {

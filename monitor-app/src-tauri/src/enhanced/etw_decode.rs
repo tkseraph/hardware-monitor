@@ -1,5 +1,5 @@
 //! Schema-based decoding, not hard-coded offsets. No session is started here.
-use super::disk_io::{Accumulator, Direction};
+use super::disk_io::{Accumulator, Direction, ProcessKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Provider {
@@ -73,6 +73,16 @@ impl Lifecycle {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum Body {
+    /// Added by the native resolver, never inferred from completion-header PID.
+    VerifiedBegin {
+        request: u64,
+        tid: u32,
+        owner: ProcessKey,
+        direction: Direction,
+    },
+    UnverifiedBegin {
+        request: u64,
+    },
     Begin {
         request: u64,
         tid: u32,
@@ -102,6 +112,23 @@ impl Event {
     /// Only storage events can be forwarded without a separate verified lifecycle resolver.
     pub fn apply_disk(&self, accumulator: &mut Accumulator) -> bool {
         match self.body {
+            Body::UnverifiedBegin { request } => {
+                accumulator.unverified_begin(self.at_ns, request);
+                true
+            }
+            Body::VerifiedBegin {
+                request,
+                tid,
+                owner,
+                direction,
+            } => {
+                if accumulator.process_start(self.at_ns, owner)
+                    && accumulator.thread_start(self.at_ns, tid, owner)
+                {
+                    accumulator.begin(self.at_ns, request, tid, direction);
+                }
+                true
+            }
             Body::Begin {
                 request,
                 tid,

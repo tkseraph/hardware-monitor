@@ -1,6 +1,8 @@
 //! One bounded worker per source, a fast cache, and a separate bounded history queue.
 //! No source or SQLite call runs while the cache lock is held.
-use crate::model::{CpuInfo, GpuInfo, MemoryInfo, SourceMeta, SourceState, SystemInfo};
+use crate::model::{
+    CpuInfo, GpuInfo, GpuTemperature, MemoryInfo, SourceMeta, SourceState, SystemInfo,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -14,6 +16,7 @@ pub enum SourceId {
     Cpu,
     Memory,
     Gpu,
+    GpuTemperature,
     Storage,
     DiskThroughput,
 }
@@ -23,6 +26,7 @@ impl SourceId {
             Self::Cpu => "cpu",
             Self::Memory => "memory",
             Self::Gpu => "gpu",
+            Self::GpuTemperature => "gpu_temperature",
             Self::Storage => "storage",
             Self::DiskThroughput => "disk_throughput",
         }
@@ -34,6 +38,7 @@ pub enum SourceValue {
     Cpu(CpuInfo),
     Memory(MemoryInfo),
     Gpu(Vec<GpuInfo>),
+    GpuTemperature(Vec<GpuTemperature>),
     Storage(crate::storage_model::WindowsStorageSnapshot),
     DiskThroughput(crate::storage_model::WindowsThroughput),
 }
@@ -43,6 +48,7 @@ impl SourceValue {
             Self::Cpu(_) => SourceId::Cpu,
             Self::Memory(_) => SourceId::Memory,
             Self::Gpu(_) => SourceId::Gpu,
+            Self::GpuTemperature(_) => SourceId::GpuTemperature,
             Self::Storage(_) => SourceId::Storage,
             Self::DiskThroughput(_) => SourceId::DiskThroughput,
         }
@@ -79,6 +85,22 @@ impl SourceValue {
                     && gpus
                         .iter()
                         .all(|v| !v.object_id.is_empty() && percent(v.utilization))
+            }
+            Self::GpuTemperature(values) => {
+                !values.is_empty()
+                    && values.len() <= 32
+                    && values.iter().enumerate().all(|(i, v)| {
+                        !v.object_id.is_empty()
+                            && values[..i].iter().all(|p| p.object_id != v.object_id)
+                            && match (v.state, v.edge_celsius) {
+                                (SourceState::Ok, Some(t)) => {
+                                    t.is_finite() && t > 0.0 && t <= 150.0
+                                }
+                                (SourceState::Ok, _) => false,
+                                (_, None) => true,
+                                _ => false,
+                            }
+                    })
             }
         }
     }
@@ -186,6 +208,13 @@ fn history_batch(value: &SourceValue, observed_at: i64) -> HistoryBatch {
                 );
             }
         }
+        SourceValue::GpuTemperature(values) => {
+            for v in values {
+                if let (SourceState::Ok, Some(t)) = (v.state, v.edge_celsius) {
+                    push("gpu.temperature.edge", v.object_id.clone(), t, "°C");
+                }
+            }
+        }
     }
     HistoryBatch {
         source: value.id(),
@@ -265,15 +294,23 @@ impl Cache {
             disks: Vec::new(),
             storage: Vec::new(),
             disk_throughput: Vec::new(),
-            source_states: ["cpu", "memory", "gpu", "storage", "disk_throughput"]
-                .into_iter()
-                .map(|name| (name.into(), SourceState::NotImplemented))
-                .collect(),
+            source_states: [
+                "cpu",
+                "memory",
+                "gpu",
+                "gpu_temperature",
+                "storage",
+                "disk_throughput",
+            ]
+            .into_iter()
+            .map(|name| (name.into(), SourceState::NotImplemented))
+            .collect(),
             source_meta: BTreeMap::new(),
             windows_storage: None,
             windows_disk_throughput: None,
             observed_at: 0,
         };
+        let mut temperatures = Vec::new();
         for (id, entry) in &self.entries {
             let period = interval.max(entry.minimum_interval);
             let age = now.saturating_duration_since(entry.updated);
@@ -302,6 +339,7 @@ impl Cache {
                         SourceValue::Cpu(v) => snapshot.cpu = Some(v.clone()),
                         SourceValue::Memory(v) => snapshot.memory = Some(v.clone()),
                         SourceValue::Gpu(v) => snapshot.gpus = v.clone(),
+                        SourceValue::GpuTemperature(v) => temperatures = v.clone(),
                         SourceValue::Storage(v) => snapshot.windows_storage = Some(v.clone()),
                         SourceValue::DiskThroughput(v) => {
                             snapshot.windows_disk_throughput = Some(v.clone())
@@ -310,6 +348,12 @@ impl Cache {
                 }
             }
             snapshot.observed_at = snapshot.observed_at.max(entry.observed_at.unwrap_or(0));
+        }
+        for gpu in &mut snapshot.gpus {
+            gpu.windows_temperature = temperatures
+                .iter()
+                .find(|t| t.object_id == gpu.object_id)
+                .cloned();
         }
         snapshot
     }
@@ -420,6 +464,7 @@ impl SourceRuntime {
                     };
                     let mut sequence = 0u64;
                     let mut clock = crate::platform::windows::sample_clock::SampleClock::default();
+                    let mut previous_temperature_objects = Vec::new();
                     loop {
                         let (stopped, requested, generation) = source_signal.current();
                         if stopped {
@@ -453,6 +498,14 @@ impl SourceRuntime {
                             let mut batch = history_batch(v, observed);
                             batch.sequence = sequence;
                             batch.boundary = boundary;
+                            if spec.id == SourceId::GpuTemperature {
+                                let objects: Vec<_> =
+                                    batch.rows.iter().map(|r| r.object.clone()).collect();
+                                if previous_temperature_objects != objects {
+                                    batch.boundary = true;
+                                }
+                                previous_temperature_objects = objects;
+                            }
                             batch
                         });
                         source_cache.lock().unwrap().update(
@@ -742,6 +795,7 @@ mod tests {
                                 memory_used_bytes: 0,
                                 memory_allocated_bytes: Some(0),
                                 windows_memory: None,
+                                windows_temperature: None,
                             }]));
                         }
                         entered.send(()).unwrap();

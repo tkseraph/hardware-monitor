@@ -1,0 +1,104 @@
+{
+  "date": "2026-09-30",
+  "stage": "gpu-edge-temperature-ui-history",
+  "artifact_sha256": "286F0560DF23C20262B97290818635C9BF1861BED8938E7B456AA0BD3D55C036",
+  "result": "passed_on_observed_machine",
+  "runtime": {
+    "name": "amdadlx64.dll",
+    "version": "1.5.0.124",
+    "sha256": "13C4628222B07E812C755EEE53308ED4AA1B2FA25E1CE96D4E5FABD88309FD60"
+  },
+  "bindings": {
+    "origin": "AMD MIT Rust subpackage, read-only prefixes adapted",
+    "commit": "32b5a740d42295c5dfe9026b9f52683da0f3af91",
+    "notice": "docs/licenses/amd-adlx-rust-MIT.txt"
+  },
+  "checks": {
+    "real_current_reading_visible": true,
+    "history_chart_observed": true,
+    "uid_matches_gpu_registry": true,
+    "only_valid_positive_celsius_saved": true,
+    "main_and_own_child_processes_exited": true,
+    "license_present_in_development_build": true,
+    "drivers_or_services_installed": false,
+    "uac_requested": false,
+    "new_tests_added": 0,
+    "full_test_suites_rerun": 0
+  },
+  "observed": [
+    {
+      "name": "AMD Radeon(TM) 890M Graphics",
+      "sample_count": 99,
+      "min_c": 52.0,
+      "max_c": 62.0,
+      "span_seconds": 201,
+      "continuous_segments": 2,
+      "unit": "°C"
+    }
+  ],
+  "segments": [
+    {
+      "samples": 57,
+      "first_timestamp": 1790736475,
+      "last_timestamp": 1790736588,
+      "min_c": 52.0,
+      "max_c": 60.0
+    },
+    {
+      "samples": 42,
+      "first_timestamp": 1790736594,
+      "last_timestamp": 1790736676,
+      "min_c": 60.0,
+      "max_c": 62.0
+    }
+  ],
+  "maximum_sample_interval_seconds": 6,
+  "limitations": [
+    "Only the pinned installed Windows x64 runtime is admitted; driver updates require review",
+    "No independent temperature calibration",
+    "Actual driver hang and crash during query not exercised",
+    "Windows installer and macOS compilation not verified this run"
+  ],
+  "source_inputs": [
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/gpu_read.rs",
+      "sha256": "877d0cb28ecb5e3052bfb4c40a59b49840b3093ad11e44530c6fb6bdee5b54e8"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/enhanced/gpu_temperature.rs",
+      "sha256": "ae1d907434a2484ba56925732dbf8d378078d6f43e728dec84ca30b9f5b8957b"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/gpu.rs",
+      "sha256": "9bde9e72d1bb123c75006609fd540c0120f4311ed49efece31b3cf1b07e85abd"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/platform/windows/scheduler.rs",
+      "sha256": "09bfb1f87e5c79d3d78e839cd697543dd33cf85f402f680926a0c6cee5a457d1"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/source_runtime.rs",
+      "sha256": "59eb2a9af1b08a03992ad9e93b419cc1685b4f081fe4d6c822f27e6b1dca249e"
+    },
+    {
+      "path": "monitor-app/src-tauri/src/query.rs",
+      "sha256": "a282de723e64c5c081ad2e930a3670882173b8ced82708a1f6d4a61dbecc3f80"
+    },
+    {
+      "path": "monitor-app/src/GpuTemperature.tsx",
+      "sha256": "0bb13f17b70c132233624d64bd845739768c0cdda53402a59b2d92b5f0fe28aa"
+    },
+    {
+      "path": "monitor-app/src/App.tsx",
+      "sha256": "1aff612701cfbd813a35cc5f0b55c7ea104d7ba69897488f7bb9f778e1066629"
+    },
+    {
+      "path": "monitor-app/src-tauri/tauri.windows.conf.json",
+      "sha256": "33dfa77165480099465aed2bdf263b0f08a820eab6a3a4ee7319d7a33e53d3de"
+    },
+    {
+      "path": "docs/licenses/amd-adlx-rust-MIT.txt",
+      "sha256": "de4420610d065e0bcbc7972ca78df37e6edc61f3d6cbe2f9d5096a7c842c41f2"
+    }
+  ]
+}

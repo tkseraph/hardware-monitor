@@ -84,6 +84,10 @@ pub struct PinnedThread {
     owner: PinnedProcess,
 }
 impl PinnedThread {
+    pub fn expired_before(&self, time: EventTime) -> io::Result<bool> {
+        let (created, exited) = times(&self.handle, true)?;
+        Ok(created != self.created || (exited != 0 && exited <= time.earliest_filetime))
+    }
     pub fn open(tid: u32) -> io::Result<Self> {
         let raw = unsafe { OpenThread(THREAD_QUERY_LIMITED_INFORMATION, 0, tid) };
         if raw.is_null() {

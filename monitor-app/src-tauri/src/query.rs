@@ -38,9 +38,11 @@ pub enum QueryError {
 /// silently returning empty.
 pub const KNOWN_METRICS: &[&str] = &[
     "cpu.total_usage",
+    "cpu.temperature.tctl",
     "cpu.per_core",
     "memory.used_percent",
     "gpu.utilization",
+    "gpu.temperature.edge",
     "disk.throughput",
     "disk.temperature",
 ];
